@@ -1,0 +1,119 @@
+{
+  "rules": {
+    "employees": {
+      ".read": "auth != null",
+      ".write": "auth.token.role === 'admin'",
+      "$empId": {
+        "lastLogin": {
+          ".write": "auth.uid === $empId"
+        }
+      }
+    },
+    "pins": {
+      ".read": false,
+      ".write": false
+    },
+    "_gate": {
+      ".read": false,
+      ".write": false
+    },
+    "tasks": {
+      ".read": "auth != null",
+      "$taskId": {
+        ".write": "auth.token.role === 'admin' || (!data.exists() && newData.child('createdBy').val() === auth.uid) || data.child('createdBy').val() === auth.uid",
+        ".validate": "newData.hasChildren(['title','deadline','startDate','createdBy'])",
+        "deadline": {
+          ".validate": "newData.isNumber()"
+        },
+        "members": {
+          "$empId": {
+            "state": {
+              ".write": "auth.uid === $empId || auth.token.role === 'admin' || root.child('tasks/'+$taskId+'/createdBy').val() === auth.uid",
+              ".validate": "newData.val() === 'pending' || newData.val() === 'accepted' || newData.val() === 'denied' || newData.val() === 'awaiting_manager'"
+            },
+            "reason": {
+              ".write": "auth.uid === $empId || auth.token.role === 'admin'"
+            },
+            "at": {
+              ".write": "auth.uid === $empId || auth.token.role === 'admin' || root.child('tasks/'+$taskId+'/createdBy').val() === auth.uid"
+            },
+            "approver": {
+              ".write": "auth.token.role === 'admin' || auth.uid === root.child('tasks/'+$taskId+'/members/'+$empId+'/approver').val()"
+            },
+            "approvedBy": {
+              ".write": "auth.token.role === 'admin' || auth.uid === root.child('tasks/'+$taskId+'/members/'+$empId+'/approver').val()"
+            },
+            "approvedAt": {
+              ".write": "auth.token.role === 'admin' || auth.uid === root.child('tasks/'+$taskId+'/members/'+$empId+'/approver').val()"
+            }
+          }
+        },
+        "activities": {
+          "$actId": {
+            "progress": {
+              ".write": "root.child('tasks/'+$taskId+'/members/'+auth.uid+'/state').val() === 'accepted' || root.child('tasks/'+$taskId+'/createdBy').val() === auth.uid || auth.token.role === 'admin'",
+              ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100"
+            },
+            "blocked": {
+              ".write": "root.child('tasks/'+$taskId+'/members/'+auth.uid).exists() || auth.token.role === 'admin'"
+            },
+            "updatedBy": {
+              ".write": "auth != null",
+              ".validate": "newData.val() === auth.uid || auth.token.role === 'admin'"
+            },
+            "updatedAt": {
+              ".write": "auth != null"
+            }
+          }
+        },
+        "completedAt": {
+          ".write": "auth != null"
+        },
+        "status": {
+          ".write": "auth != null"
+        },
+        "lastActivityAt": {
+          ".write": "auth != null"
+        },
+        "extensions": {
+          ".write": "auth.token.role === 'admin'"
+        },
+        "rounds": {
+          ".write": "auth.token.role === 'admin'"
+        },
+        "rejections": {
+          ".write": "auth != null"
+        }
+      }
+    },
+    "updates": {
+      ".read": "auth != null",
+      "$taskId": {
+        "$id": {
+          ".write": "auth != null && !data.exists()",
+          ".validate": "newData.child('empId').val() === auth.uid && newData.hasChildren(['actId','empId','from','to','delta','at'])"
+        }
+      }
+    },
+    "comments": {
+      ".read": "auth != null",
+      "$taskId": {
+        "$actId": {
+          "$id": {
+            ".write": "auth != null && !data.exists()",
+            ".validate": "newData.child('empId').val() === auth.uid && newData.child('text').isString() && newData.child('text').val().length <= 1000"
+          }
+        }
+      }
+    },
+    "audit": {
+      ".read": "auth != null",
+      "$taskId": {
+        "$id": {
+          ".write": "auth != null && !data.exists()",
+          ".validate": "newData.child('empId').val() === auth.uid"
+        }
+      }
+    }
+  }
+}

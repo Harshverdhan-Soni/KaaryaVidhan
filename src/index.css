@@ -1,0 +1,41 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html { -webkit-tap-highlight-color: transparent; }
+  body {
+    @apply bg-sky text-ink font-sans antialiased;
+    background-image:
+      radial-gradient(1100px 420px at 50% -280px, rgba(11,78,140,.10), transparent 70%);
+    background-attachment: fixed;
+  }
+  :focus-visible { outline: 2px solid #0B4E8C; outline-offset: 2px; border-radius: 4px; }
+  ::selection { background: #0B4E8C; color: #fff; }
+}
+
+@layer components {
+  .card    { @apply bg-white border border-line rounded-xl shadow-card; }
+  .eyebrow { @apply font-mono text-[10px] uppercase tracking-[.14em] text-muted; }
+  .field   { @apply w-full bg-white border border-line rounded-lg px-3 py-2.5 text-sm
+                    placeholder:text-muted/60 focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20 outline-none transition; }
+  .btn     { @apply inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2.5 text-sm font-medium
+                    transition disabled:opacity-40 disabled:cursor-not-allowed; }
+  .btn-primary { @apply btn bg-blue text-white hover:bg-ink active:scale-[.98]; }
+  .btn-ghost   { @apply btn border border-line bg-white text-ink hover:bg-sky; }
+  .btn-danger  { @apply btn bg-bad text-white hover:brightness-90; }
+  .chip    { @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium; }
+  .tab     { @apply px-3.5 py-2 text-sm font-medium rounded-lg text-muted hover:text-ink transition; }
+  .tab-on  { @apply bg-white text-ink shadow-card; }
+}
+
+/* The hatched gap on the Pace Bar: the distance between where the work is and
+   where the calendar says it should be. Deliberately loud — it is the alarm. */
+.pace-gap {
+  background-image: repeating-linear-gradient(
+    -45deg, rgba(217,48,37,.30) 0 4px, rgba(217,48,37,.08) 4px 8px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
