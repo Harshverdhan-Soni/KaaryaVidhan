@@ -4,7 +4,7 @@ import TaskCard from '../components/TaskCard';
 import { Empty, Tabs, Chip, AsyncButton, DangerConfirm } from '../components/ui';
 import { httpsCallable } from 'firebase/functions';
 import { fns } from '../lib/firebase';
-import { statusOf, NEEDS_ATTENTION, fmtDate } from '../lib/progress';
+import { statusOf, NEEDS_ATTENTION, fmtDate, livePendingApprovals } from '../lib/progress';
 import { exportRows } from '../lib/excel';
 
 /** Small stat strip. Numbers only — the Pace Bar does the storytelling. */
@@ -93,9 +93,9 @@ export default function Dashboard({ role, me, employees, onOpen }) {
       self:     tasks.filter((t) => t.origin === 'self')
     };
     if (role === 'manager') {
-      // Tasks where one of my reports is still awaiting MY approval.
-      const approvals = tasks.filter((t) => Object.values(t.members || {})
-        .some((m) => m.state === 'awaiting_manager' && m.approver === me.empId));
+      // Tasks where one of my reports is still awaiting MY approval — but a
+      // completed task has no live approvals (livePendingApprovals handles that).
+      const approvals = tasks.filter((t) => livePendingApprovals(t, me.empId).length > 0);
       return {
         mine:  tasks.filter((t) => isMember(t, me.empId)),
         team:  tasks.filter((t) => reports.some((r) => isMember(t, r)) && !isMember(t, me.empId)),

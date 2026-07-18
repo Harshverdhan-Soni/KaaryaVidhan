@@ -37,6 +37,11 @@ export async function setActivityProgress(task, actId, next, me) {
   if (mean >= 99.5 && !task.completedAt) {
     patch[`tasks/${task.id}/completedAt`] = Date.now();
     patch[`tasks/${task.id}/status`] = 'completed';
+    // Pending manager-approvals on a completed task are moot. We do NOT remove
+    // the member rows here (a non-admin completer lacks permission to edit other
+    // members), so completed tasks are treated as having no live approvals at
+    // read time — see `livePendingApprovals` in progress.js, used by the
+    // Approvals inbox and the approval panel.
   } else if (mean < 99.5 && task.completedAt) {
     patch[`tasks/${task.id}/completedAt`] = null;
     patch[`tasks/${task.id}/status`] = 'active';
@@ -188,4 +193,33 @@ export async function saveTemplate(uid, { title, description, activities }) {
 
 export async function deleteTemplate(uid, tid) {
   await set(ref(db, `templates/${uid}/${tid}`), null);
+}
+
+/**
+ * Add one or more people to a task that is already running, WITHOUT disturbing
+ * anyone already on it. Each new person is gated individually by the same rule
+ * as first assignment: an admin adding someone who reports to a different
+ * manager → awaiting_manager; a manager adding own report, or anyone adding
+ * themselves → straight in. Existing members are untouched.
+ *
+ * @param ctx { employees, role } — assigner context for the gate rule.
+ */
+export async function addMembers(task, empIds, me, ctx = {}) {
+  const existing = task.members || {};
+  const patch = {};
+  const added = [];
+  for (const id of empIds) {
+    if (existing[id]) continue;                    // already on the task — skip
+    const assignee = ctx.employees?.[id];
+    const state = assignee
+      ? initialMemberState({ empId: me.empId, role: ctx.role || 'admin' }, assignee)
+      : { state: 'pending', at: Date.now() };
+    patch[`tasks/${task.id}/members/${id}`] = state;
+    added.push({ id, state: state.state });
+  }
+  if (!Object.keys(patch).length) return { added: [] };
+  await update(ref(db), patch);
+  await audit(task.id, me.empId, 'added members',
+    added.map((a) => `${ctx.employees?.[a.id]?.name || a.id}${a.state === 'awaiting_manager' ? ' (awaiting approval)' : ''}`).join(', '));
+  return { added };
 }

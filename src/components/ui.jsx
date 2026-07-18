@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { colorFor, initialsOf } from '../lib/colors';
 
-export function Avatar({ emp, size = 28, ring = false }) {
-  const c = colorFor(emp?.empId || '');
+export function Avatar({ emp, size = 28, ring = false, color }) {
+  const c = color || colorFor(emp?.empId || '');
   return (
     <span
       title={`${emp?.name || 'Unknown'} · ${emp?.empId || ''}`}

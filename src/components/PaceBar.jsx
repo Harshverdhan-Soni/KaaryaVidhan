@@ -1,4 +1,4 @@
-import { colorFor } from '../lib/colors';
+import { colorForInTask } from '../lib/colors';
 import { contributions, statusOf } from '../lib/progress';
 
 /**
@@ -16,6 +16,7 @@ import { contributions, statusOf } from '../lib/progress';
 export default function PaceBar({ task, updates, employees, height = 14, showMarker = true, showLegend = false }) {
   const st = statusOf(task);
   const parts = contributions(updates, task);
+  const memberIds = Object.keys(task.members || {});
   const actual = st.actual, expected = st.expected;
   const behind = actual < expected - 0.5 && st.key !== 'completed';
 
@@ -36,7 +37,7 @@ export default function PaceBar({ task, updates, employees, height = 14, showMar
                  title={`${employees?.[p.empId]?.name || p.empId} — ${p.pctOfTask.toFixed(0)}% of this task`}
                  style={{
                    width: `${p.share * 100}%`,
-                   background: colorFor(p.empId),
+                   background: colorForInTask(p.empId, memberIds),
                    // hairline between neighbours, so two warm colours never read as one block
                    boxShadow: i < parts.length - 1 ? 'inset -1px 0 0 rgba(255,255,255,.65)' : 'none'
                  }}
@@ -67,7 +68,7 @@ export default function PaceBar({ task, updates, employees, height = 14, showMar
         <div className="flex flex-wrap gap-x-3 gap-y-1 pt-0.5">
           {parts.map((p) => (
             <span key={p.empId} className="inline-flex items-center gap-1.5 text-[11px] text-muted">
-              <i className="h-2 w-2 rounded-full" style={{ background: colorFor(p.empId) }} />
+              <i className="h-2 w-2 rounded-full" style={{ background: colorForInTask(p.empId, memberIds) }} />
               {employees?.[p.empId]?.name?.split(' ')[0] || p.empId}
               <b className="font-mono font-medium text-ink">{Math.round(p.share * 100)}%</b>
             </span>

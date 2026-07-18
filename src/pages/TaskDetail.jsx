@@ -5,10 +5,10 @@ import PaceBar from '../components/PaceBar';
 import { Avatar, Chip, Modal, Field, DangerConfirm } from '../components/ui';
 import { httpsCallable } from 'firebase/functions';
 import { fns } from '../lib/firebase';
-import { colorFor } from '../lib/colors';
-import { statusOf, contributions, fmtDate, fmtDateTime, toDateInput } from '../lib/progress';
+import { colorFor, colorForInTask } from '../lib/colors';
+import { statusOf, contributions, fmtDate, fmtDateTime, toDateInput, initialMemberState, isCompleted, livePendingApprovals } from '../lib/progress';
 import {
-  setActivityProgress, toggleBlocked, addComment, respondToTask, extendDeadline, reassignTask, updateTaskFields,
+  setActivityProgress, toggleBlocked, addComment, respondToTask, extendDeadline, reassignTask, updateTaskFields, addMembers,
   approveAssignment, rejectAssignment
 } from '../lib/db';
 
@@ -72,7 +72,7 @@ function Activity({ task, actId, act, employees, canEdit, me }) {
              aria-disabled={!editing}
              className="mt-3 w-full accent-blue transition-opacity"
              style={{
-               accentColor: editing ? '#0B4E8C' : (act.updatedBy ? colorFor(act.updatedBy) : '#0B4E8C'),
+               accentColor: editing ? '#0B4E8C' : (act.updatedBy ? colorForInTask(act.updatedBy, Object.keys(task.members || {})) : '#0B4E8C'),
                opacity: editing ? 1 : 0.55,
                pointerEvents: editing ? 'auto' : 'none',
                cursor: editing ? 'pointer' : 'default'
@@ -127,8 +127,8 @@ function Activity({ task, actId, act, employees, canEdit, me }) {
             <div key={id} className="flex gap-2">
               <Avatar emp={employees?.[c.empId]} size={22} />
               <div className="min-w-0 flex-1 rounded-lg rounded-tl-none px-2.5 py-1.5"
-                   style={{ background: `${colorFor(c.empId)}0F` }}>
-                <p className="font-mono text-[10px]" style={{ color: colorFor(c.empId) }}>
+                   style={{ background: `${colorForInTask(c.empId, Object.keys(task.members || {}))}0F` }}>
+                <p className="font-mono text-[10px]" style={{ color: colorForInTask(c.empId, Object.keys(task.members || {})) }}>
                   {employees?.[c.empId]?.name || c.empId} · {fmtDateTime(c.at)}
                 </p>
                 <p className="mt-0.5 text-xs leading-relaxed">{c.text}</p>
@@ -165,9 +165,19 @@ export default function TaskDetail({ task, employees, onClose, isAdmin }) {
   const [declining, setDeclining] = useState(false);
   const [justActed, setJustActed] = useState(false);
   const [respondErr, setRespondErr] = useState('');
+  const [addOpen, setAddOpen]   = useState(false);
 
   const st      = statusOf(task);
   const mine    = task.members?.[me.empId];
+
+  // Reassign is only offered once the deadline has passed. Add Employee is
+  // always available while the task runs. A manager can manage a task their own
+  // report is on; an admin can manage any.
+  const deadlinePassed = task.deadline && Date.now() > task.deadline;
+  const managesThis = isAdmin
+    || task.createdBy === me.empId
+    || Object.keys(task.members || {}).some((id) => employees?.[id]?.managerId === me.empId);
+  const myRole = isAdmin ? 'admin' : (me.role || 'employee');
 
   // When our accept lands (the live task sync flips our state to 'accepted'),
   // clear the busy flag and flash a confirmation that fades after a few seconds.
@@ -224,13 +234,17 @@ export default function TaskDetail({ task, employees, onClose, isAdmin }) {
           </p>
         )}
 
-        {isAdmin && (
+        {managesThis && (
           <div className="mt-4 flex flex-wrap gap-2 border-t border-line pt-4">
-            <button className="btn-ghost text-xs" onClick={() => setEditOpen(true)}>Edit details</button>
-            <button className="btn-ghost text-xs" onClick={() => setExtOpen(true)}>Extend deadline</button>
-            <button className="btn-ghost text-xs" onClick={() => setReaOpen(true)}>Reassign</button>
-            <button className="text-xs font-medium text-bad hover:underline ml-auto" onClick={() => setDelOpen(true)}>Delete task</button>
+            {isAdmin && <button className="btn-ghost text-xs" onClick={() => setEditOpen(true)}>Edit details</button>}
+            <button className="btn-ghost text-xs" onClick={() => setAddOpen(true)}>Add employee</button>
+            {isAdmin && <button className="btn-ghost text-xs" onClick={() => setExtOpen(true)}>Extend deadline</button>}
+            {deadlinePassed && <button className="btn-ghost text-xs" onClick={() => setReaOpen(true)}>Reassign</button>}
+            {isAdmin && <button className="text-xs font-medium text-bad hover:underline ml-auto" onClick={() => setDelOpen(true)}>Delete task</button>}
           </div>
+        )}
+        {managesThis && !deadlinePassed && task.deadline && (
+          <p className="mt-2 text-[11px] text-muted">Reassign becomes available after the deadline ({fmtDate(task.deadline)}) passes. Until then, use “Add employee” to bring in more people.</p>
         )}
       </div>
 
@@ -266,7 +280,7 @@ export default function TaskDetail({ task, employees, onClose, isAdmin }) {
           <p className="text-xs text-warn">You declined this task{mine.reason ? `: “${mine.reason}”` : ''}. The admin can reassign it or ask you again.</p>
         </div>
       )}
-      {mine?.state === 'awaiting_manager' && (
+      {mine?.state === 'awaiting_manager' && !isCompleted(task) && (
         <div className="card border-line p-4">
           <p className="text-sm font-medium">Waiting on your manager</p>
           <p className="mt-0.5 text-xs text-muted">
@@ -309,19 +323,19 @@ export default function TaskDetail({ task, employees, onClose, isAdmin }) {
             const e = employees?.[id];
             return (
               <div key={id} className="flex items-center gap-3 p-3.5">
-                <Avatar emp={e} size={34} ring />
+                <Avatar emp={e} size={34} ring color={colorForInTask(id, Object.keys(task.members || {}))} />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{e?.name || id}</p>
                   <p className="font-mono text-[11px] text-muted">{id} · {e?.designation || '—'}</p>
                 </div>
                 <div className="text-right">
-                  <p className="font-mono text-sm font-semibold" style={{ color: colorFor(id) }}>
+                  <p className="font-mono text-sm font-semibold" style={{ color: colorForInTask(id, Object.keys(task.members || {})) }}>
                     {c ? `${Math.round(c.share * 100)}%` : '—'}
                   </p>
                   <p className="eyebrow">of progress</p>
                 </div>
-                <Chip color={m.state === 'accepted' ? '#1F8A4C' : m.state === 'denied' ? '#D93025' : m.state === 'awaiting_manager' ? '#0B4E8C' : '#5A7391'}>
-                  {m.state === 'denied' ? 'Declined' : m.state === 'accepted' ? 'Accepted' : m.state === 'awaiting_manager' ? 'Manager approval' : 'Awaiting'}
+                <Chip color={m.state === 'accepted' ? '#1F8A4C' : m.state === 'denied' ? '#D93025' : (m.state === 'awaiting_manager' && !isCompleted(task)) ? '#0B4E8C' : '#5A7391'}>
+                  {m.state === 'denied' ? 'Declined' : m.state === 'accepted' ? 'Accepted' : (m.state === 'awaiting_manager' && !isCompleted(task)) ? 'Manager approval' : isCompleted(task) ? 'Not needed' : 'Awaiting'}
                 </Chip>
               </div>
             );
@@ -375,6 +389,7 @@ export default function TaskDetail({ task, employees, onClose, isAdmin }) {
 
       <ExtendModal open={extOpen} onClose={() => setExtOpen(false)} task={task} me={me} />
       <ReassignModal open={reaOpen} onClose={() => setReaOpen(false)} task={task} me={me} employees={employees} />
+      <AddMemberModal open={addOpen} onClose={() => setAddOpen(false)} task={task} me={me} employees={employees} myRole={myRole} isAdmin={isAdmin} />
       <EditTaskModal open={editOpen} onClose={() => setEditOpen(false)} task={task} me={me} employees={employees} />
 
       <DangerConfirm
@@ -549,9 +564,8 @@ function ManagerApprovalPanel({ task, me, employees }) {
   const [err, setErr] = useState('');
   const [done, setDone] = useState('');               // a short success note
 
-  // Members on this task whose approver is me and who are still awaiting.
-  const mine = Object.entries(task.members || {})
-    .filter(([, m]) => m.state === 'awaiting_manager' && m.approver === me.empId);
+  // Members on this task still awaiting MY approval (empty if task completed).
+  const mine = livePendingApprovals(task, me.empId);
 
   // If everything has been actioned, show the confirmation instead of nothing.
   if (!mine.length) {
@@ -637,5 +651,92 @@ function ManagerApprovalPanel({ task, me, employees }) {
         })}
       </div>
     </div>
+  );
+}
+
+/* --------------------------- add employees mid-task ------------------------ */
+
+function AddMemberModal({ open, onClose, task, me, employees, myRole, isAdmin }) {
+  const [sel, setSel]   = useState([]);
+  const [q, setQ]       = useState('');
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(null);
+
+  useMemo(() => { if (open) { setSel([]); setQ(''); setDone(null); setBusy(false); } }, [open]);
+
+  const existing = task.members || {};
+  // Who can be added: anyone not already on the task. A manager adding is scoped
+  // to their own reports plus themselves; an admin can add anyone.
+  const pool = Object.values(employees || {})
+    .filter((e) => e.active !== false && !existing[e.empId])
+    .filter((e) => isAdmin || e.managerId === me.empId || e.empId === me.empId)
+    .filter((e) => !q || `${e.name} ${e.empId} ${e.department} ${e.designation}`.toLowerCase().includes(q.toLowerCase()))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const iAmOnTask = !!existing[me.empId];
+
+  const add = async () => {
+    setBusy(true);
+    const res = await addMembers(task, sel, me, { employees, role: myRole });
+    setBusy(false);
+    setDone(res.added);
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} wide title="Add employees to this task">
+      {done ? (
+        <div className="space-y-3">
+          <p className="text-sm">
+            Added <b>{done.length}</b> {done.length === 1 ? 'person' : 'people'}.
+          </p>
+          {done.some((d) => d.state === 'awaiting_manager') && (
+            <p className="rounded-lg bg-blue/[.06] px-3 py-2 text-xs text-ink">
+              Some of them report to another manager, so their assignment is waiting on that
+              manager's approval before it reaches them. People on your own team were added directly.
+            </p>
+          )}
+          <button className="btn-primary w-full" onClick={onClose}>Done</button>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <p className="text-xs leading-relaxed text-muted">
+            Bring more people onto this task without disturbing anyone already on it. Only the people you
+            add now need approval — and only if they report to a different manager. You can add yourself to
+            gain the right to record progress.
+          </p>
+          {!iAmOnTask && !sel.includes(me.empId) && (
+            <button className="w-full rounded-lg border border-dashed border-blue/40 bg-blue/[.03] px-3 py-2 text-xs font-medium text-blue"
+                    onClick={() => setSel([...sel, me.empId])}>
+              + Add myself ({me.name}) so I can edit progress
+            </button>
+          )}
+          <input className="field" placeholder="Search name, ID, department or designation"
+                 value={q} onChange={(e) => setQ(e.target.value)} />
+          <div className="max-h-64 space-y-1 overflow-y-auto">
+            {pool.length === 0 && <p className="py-6 text-center text-xs text-muted">No one else to add.</p>}
+            {pool.map((e) => {
+              const on = sel.includes(e.empId);
+              return (
+                <label key={e.empId} className={`flex cursor-pointer items-center gap-3 rounded-lg border p-2.5 ${on ? 'border-blue bg-blue/[.04]' : 'border-line'}`}>
+                  <input type="checkbox" className="accent-blue" checked={on}
+                         onChange={() => setSel(on ? sel.filter((x) => x !== e.empId) : [...sel, e.empId])} />
+                  <Avatar emp={e} size={30} ring />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{e.name}{e.empId === me.empId && ' (you)'}</p>
+                    <p className="truncate font-mono text-[10px] text-muted">{e.empId} · {e.designation || '—'} · {e.department || '—'}</p>
+                  </div>
+                  {!isAdmin ? null : e.managerId && e.managerId !== me.empId && (
+                    <span className="chip" style={{ color: '#0B4E8C' }}>needs approval</span>
+                  )}
+                </label>
+              );
+            })}
+          </div>
+          <button className="btn-primary w-full" disabled={!sel.length || busy} onClick={add}>
+            {busy ? 'Adding…' : `Add ${sel.length} ${sel.length === 1 ? 'person' : 'people'}`}
+          </button>
+        </div>
+      )}
+    </Modal>
   );
 }

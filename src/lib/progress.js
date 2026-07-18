@@ -118,3 +118,21 @@ export const PRE_EMPLOYEE = new Set(['awaiting_manager']);
 export function awaitingApproval(task) {
   return Object.values(task?.members || {}).some((m) => m.state === 'awaiting_manager');
 }
+
+/** True when the task is finished. */
+export function isCompleted(task) {
+  return !!task?.completedAt || task?.status === 'completed';
+}
+
+/**
+ * Members still genuinely awaiting a given manager's approval. A COMPLETED task
+ * has no live approvals — its pending requests are moot and must disappear from
+ * the manager's Approvals panel even though the member rows still exist in the
+ * database (a non-admin completer can't delete them). Pass approverId to filter
+ * to one manager; omit it for "any".
+ */
+export function livePendingApprovals(task, approverId) {
+  if (isCompleted(task)) return [];
+  return Object.entries(task?.members || {}).filter(([, m]) =>
+    m.state === 'awaiting_manager' && (!approverId || m.approver === approverId));
+}

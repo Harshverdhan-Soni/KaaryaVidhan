@@ -1,13 +1,14 @@
 import PaceBar from './PaceBar';
 import { Avatar, Chip } from './ui';
-import { statusOf, fmtDate } from '../lib/progress';
+import { colorForInTask } from '../lib/colors';
+import { statusOf, fmtDate, livePendingApprovals } from '../lib/progress';
 
 export default function TaskCard({ task, updates, employees, onOpen, showOwner = false }) {
   const st = statusOf(task);
   const members = Object.entries(task.members || {});
   const pending = members.filter(([, m]) => m.state === 'pending').length;
   const denied  = members.filter(([, m]) => m.state === 'denied');
-  const awaiting = members.filter(([, m]) => m.state === 'awaiting_manager').length;
+  const awaiting = livePendingApprovals(task).length;
   const acts    = Object.values(task.activities || {});
   const blocked = acts.filter((a) => a.blocked).length;
 
@@ -32,7 +33,7 @@ export default function TaskCard({ task, updates, employees, onOpen, showOwner =
 
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line pt-3">
         <div className="flex -space-x-1.5">
-          {members.slice(0, 5).map(([id]) => <Avatar key={id} emp={employees?.[id]} size={22} ring />)}
+          {members.slice(0, 5).map(([id]) => <Avatar key={id} emp={employees?.[id]} size={22} ring color={colorForInTask(id, members.map(([mid]) => mid))} />)}
           {members.length > 5 && (
             <span className="inline-flex h-[22px] items-center rounded-full bg-sky px-1.5 font-mono text-[10px] text-muted">
               +{members.length - 5}
