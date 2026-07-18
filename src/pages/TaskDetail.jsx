@@ -525,25 +525,65 @@ function EditTaskModal({ open, onClose, task, me, employees }) {
 
 /* ---------------------- manager approval panel (in task) ------------------- */
 
+/* Turn a Firebase callable error into something a manager can read. The most
+   common real cause is the function not being deployed, or a permissions/auth
+   issue — each gets a specific, actionable message rather than a raw code. */
+function errorText(e) {
+  const code = e?.code || '';
+  const msg = e?.message || '';
+  if (/not-found|internal|functions\/not-found/i.test(code + msg))
+    return 'The approval service could not be reached. If this persists, the server functions may need to be deployed. Please tell your administrator.';
+  if (/permission-denied|unauthenticated/i.test(code + msg))
+    return 'You are not the approver for this person, or your session expired. Try signing out and in again.';
+  if (/failed-precondition/i.test(code + msg))
+    return 'This assignment is no longer awaiting your approval — it may already have been actioned. Refresh to see the current state.';
+  if (/unavailable|network/i.test(code + msg))
+    return 'Network problem reaching the server. Check your connection and try again.';
+  return 'Could not complete that action. Please try again.';
+}
+
 function ManagerApprovalPanel({ task, me, employees }) {
   const [busyId, setBusyId] = useState(null);
   const [rejecting, setRejecting] = useState(null);   // empId being rejected
   const [reason, setReason] = useState('');
+  const [err, setErr] = useState('');
+  const [done, setDone] = useState('');               // a short success note
 
   // Members on this task whose approver is me and who are still awaiting.
   const mine = Object.entries(task.members || {})
     .filter(([, m]) => m.state === 'awaiting_manager' && m.approver === me.empId);
-  if (!mine.length) return null;
+
+  // If everything has been actioned, show the confirmation instead of nothing.
+  if (!mine.length) {
+    if (done) return (
+      <div className="card border-ok/40 bg-ok/[.04] p-4">
+        <p className="flex items-center gap-2 text-sm font-medium text-ok">
+          <span className="grid h-5 w-5 place-items-center rounded-full bg-ok text-white text-xs">✓</span>
+          {done}
+        </p>
+      </div>
+    );
+    return null;
+  }
 
   const approve = async (empId) => {
-    setBusyId(empId);
-    try { await approveAssignment(task.id, empId); }
-    finally { setBusyId(null); }
+    setErr(''); setBusyId(empId);
+    try {
+      await approveAssignment(task.id, empId);
+      setDone(`${employees?.[empId]?.name || 'The assignment'} approved — it has been sent on for their acceptance.`);
+    } catch (e) {
+      setErr(errorText(e));
+    } finally { setBusyId(null); }
   };
   const reject = async (empId) => {
-    setBusyId(empId);
-    try { await rejectAssignment(task.id, empId, reason); setRejecting(null); setReason(''); }
-    finally { setBusyId(null); }
+    setErr(''); setBusyId(empId);
+    try {
+      await rejectAssignment(task.id, empId, reason);
+      setDone(`${employees?.[empId]?.name || 'The assignment'} was rejected and returned to the administrator.`);
+      setRejecting(null); setReason('');
+    } catch (e) {
+      setErr(errorText(e));
+    } finally { setBusyId(null); }
   };
 
   return (
@@ -553,6 +593,7 @@ function ManagerApprovalPanel({ task, me, employees }) {
         An administrator assigned this task to {mine.length === 1 ? 'someone' : 'people'} who report{mine.length === 1 ? 's' : ''} to you.
         Approve to send it on for their acceptance, or reject it back to the administrator.
       </p>
+      {err && <p className="mt-2 rounded-lg bg-bad/10 px-3 py-2 text-xs text-bad">{err}</p>}
       <div className="mt-3 space-y-2">
         {mine.map(([empId]) => {
           const e = employees?.[empId];
