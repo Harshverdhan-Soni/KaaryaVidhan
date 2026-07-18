@@ -26,14 +26,18 @@ function Activity({ task, actId, act, employees, canEdit, me }) {
   const val = draft ?? serverVal;              // what the slider shows
   const mover = employees?.[act.updatedBy];
 
-  // Once the live sync confirms our saved value, close the editor and release
-  // the draft — no snap-back, no accidental lingering edit state.
-  useEffect(() => {
-    if (draft !== null && serverVal === draft) { setDraft(null); setSaving(false); setEditing(false); }
-  }, [serverVal, draft]);
-
   const startEdit = () => { setDraft(serverVal); setEditing(true); };
   const cancelEdit = () => { setDraft(null); setEditing(false); };
+
+  // Close the editor only after a save we initiated has landed. We watch for the
+  // live sync catching up to the value we were saving — but ONLY while `saving`
+  // is true, so merely dragging the slider back to the current value can't
+  // trip this and slam the editor shut.
+  useEffect(() => {
+    if (saving && draft !== null && serverVal === draft) {
+      setDraft(null); setSaving(false); setEditing(false);
+    }
+  }, [serverVal, draft, saving]);
 
   const save = async () => {
     const v = draft ?? serverVal;
@@ -59,15 +63,22 @@ function Activity({ task, actId, act, employees, canEdit, me }) {
         </span>
       </div>
 
-      {/* The slider is read-only until the assigned person explicitly chooses to
-          update, so a stray tap can never change progress. While editing it
-          carries the mover's colour; otherwise it just displays the value. */}
-      <input type="range" min="0" max="100" step="5" value={val}
-             disabled={!editing}
-             className="mt-3 w-full accent-blue disabled:opacity-60 disabled:cursor-default"
-             style={{ accentColor: (editing || act.updatedBy) ? (editing ? '#0B4E8C' : colorFor(act.updatedBy)) : '#0B4E8C' }}
-             onInput={(e) => setDraft(Number(e.target.value))}
-             onChange={(e) => setDraft(Number(e.target.value))} />
+      {/* The slider is read-only until the assigned person clicks Update progress,
+          so a stray tap can never change it. When locked we do NOT use the native
+          `disabled` attribute (that forces the browser's grey rendering); instead
+          we keep the contributor's colour, fade it, and block interaction with
+          pointer-events — so who moved the work stays visible at a glance. */}
+      <input type="range" min="0" max="100" step="5" value={val} readOnly={!editing}
+             aria-disabled={!editing}
+             className="mt-3 w-full accent-blue transition-opacity"
+             style={{
+               accentColor: editing ? '#0B4E8C' : (act.updatedBy ? colorFor(act.updatedBy) : '#0B4E8C'),
+               opacity: editing ? 1 : 0.55,
+               pointerEvents: editing ? 'auto' : 'none',
+               cursor: editing ? 'pointer' : 'default'
+             }}
+             onInput={(e) => editing && setDraft(Number(e.target.value))}
+             onChange={(e) => editing && setDraft(Number(e.target.value))} />
 
       {canEdit && (
         <div className="mt-2 flex items-center gap-2">
