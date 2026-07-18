@@ -51,11 +51,11 @@
         "activities": {
           "$actId": {
             "progress": {
-              ".write": "root.child('tasks/'+$taskId+'/members/'+auth.uid+'/state').val() === 'accepted' || root.child('tasks/'+$taskId+'/createdBy').val() === auth.uid || auth.token.role === 'admin'",
+              ".write": "root.child('tasks/'+$taskId+'/members/'+auth.uid+'/state').val() === 'accepted'",
               ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100"
             },
             "blocked": {
-              ".write": "root.child('tasks/'+$taskId+'/members/'+auth.uid).exists() || auth.token.role === 'admin'"
+              ".write": "root.child('tasks/'+$taskId+'/members/'+auth.uid+'/state').val() === 'accepted'"
             },
             "updatedBy": {
               ".write": "auth != null",

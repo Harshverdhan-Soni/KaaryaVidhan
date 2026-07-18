@@ -120,13 +120,32 @@ export async function createTask(t, me) {
    only role change an edit can make is promoting to manager when someone starts
    reporting to this person; an admin is never demoted by an edit. */
 export async function updateEmployee(empId, fields, me) {
+  const reportingTo = fields.reportingTo.trim();
   const clean = {
     name: fields.name.trim(),
     designation: fields.designation.trim(),
     department: fields.department.trim(),
-    reportingTo: fields.reportingTo.trim()
+    reportingTo
   };
+
+  // Resolve the chosen name to an actual account so the manager's team view
+  // links immediately — not only after the next Excel import. Names can repeat,
+  // so if more than one person carries this name we can't safely pick; leave the
+  // link unresolved (the name is still stored) rather than guess wrong.
+  const all = (await get(ref(db, 'employees'))).val() || {};
+  const matches = Object.values(all).filter((e) => e.name === reportingTo && e.empId !== empId);
+  clean.managerId = matches.length === 1 ? matches[0].empId : null;
+
   await update(ref(db, `employees/${empId}`), clean);
+
+  // If this person now has reports, they should be a manager (never demote an
+  // admin). Promote the newly-chosen manager if they aren't already.
+  if (clean.managerId) {
+    const mgr = all[clean.managerId];
+    if (mgr && mgr.role === 'employee') {
+      await update(ref(db, `employees/${clean.managerId}`), { role: 'manager' });
+    }
+  }
 }
 
 /* Admin edits a task's headline fields. Activities, members and progress are

@@ -109,7 +109,7 @@ export default function Employees({ employees }) {
 
       <ImportModal open={imp} onClose={() => setImp(false)} existing={employees} />
       <PinModal emp={pinFor} onClose={() => setPinFor(null)} />
-      <EditEmployeeModal emp={editEmp} onClose={() => setEditEmp(null)} me={me} depts={depts} />
+      <EditEmployeeModal emp={editEmp} onClose={() => setEditEmp(null)} me={me} depts={depts} employees={employees} />
 
       <DangerConfirm
         open={delOpen} onClose={() => setDelOpen(false)}
@@ -128,7 +128,7 @@ export default function Employees({ employees }) {
 
 /* ------------------------------ edit employee ----------------------------- */
 
-function EditEmployeeModal({ emp, onClose, me, depts }) {
+function EditEmployeeModal({ emp, onClose, me, depts, employees }) {
   const [f, setF] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr]   = useState('');
@@ -139,7 +139,16 @@ function EditEmployeeModal({ emp, onClose, me, depts }) {
                     department: emp.department || '', reportingTo: emp.reportingTo || '' });
   }, [emp]);
 
+  // Everyone except this person — nobody reports to themselves.
+  const others = useMemo(() => Object.values(employees || {})
+    .filter((e) => e.empId !== emp?.empId)
+    .sort((a, b) => a.name.localeCompare(b.name)), [employees, emp]);
+
   if (!emp || !f) return null;
+
+  // The stored value is a name; it may not correspond to anyone still listed.
+  const currentIsKnown = others.some((e) => e.name === f.reportingTo);
+
   const save = async () => {
     if (!f.name.trim()) { setErr('A name is required.'); return; }
     setBusy(true); setErr('');
@@ -164,8 +173,20 @@ function EditEmployeeModal({ emp, onClose, me, depts }) {
                  onChange={(e) => setF({ ...f, department: e.target.value })} />
           <datalist id="edit-depts">{depts.map((d) => <option key={d} value={d} />)}</datalist>
         </Field>
-        <Field label="Reporting authority name" hint="Must match another employee's name exactly to link the manager view.">
-          <input className="field" value={f.reportingTo} onChange={(e) => setF({ ...f, reportingTo: e.target.value })} />
+        <Field label="Reporting authority" hint="Pick the person this employee reports to. This links the manager's view of their team.">
+          <select className="field" value={f.reportingTo}
+                  onChange={(e) => setF({ ...f, reportingTo: e.target.value })}>
+            <option value="">— No reporting authority —</option>
+            {/* Keep an unmatched stored value visible rather than silently losing it. */}
+            {f.reportingTo && !currentIsKnown && (
+              <option value={f.reportingTo}>{f.reportingTo} (not in directory)</option>
+            )}
+            {others.map((e) => (
+              <option key={e.empId} value={e.name}>
+                {e.name} — {e.empId}{e.department ? ` · ${e.department}` : ''}
+              </option>
+            ))}
+          </select>
         </Field>
         <p className="text-[11px] text-muted">
           Employee ID and role can't be edited here. Role follows the reporting graph — someone becomes a

@@ -16,28 +16,31 @@ import {
 
 function Activity({ task, actId, act, employees, canEdit, me }) {
   const [open, setOpen]   = useState(false);
-  const [draft, setDraft] = useState(null);      // live slider value while dragging / awaiting sync
+  const [editing, setEditing] = useState(false); // is the slider unlocked?
+  const [draft, setDraft] = useState(null);      // pending value while editing / awaiting sync
   const [saving, setSaving] = useState(false);
   const [text, setText]   = useState('');
   const comments = useDb(`comments/${task.id}/${actId}`, open);
   const list = Object.entries(comments || {}).sort((a, b) => a[1].at - b[1].at);
   const serverVal = Number(act.progress) || 0;
-  const val = draft ?? serverVal;
+  const val = draft ?? serverVal;              // what the slider shows
   const mover = employees?.[act.updatedBy];
 
-  // Once the live task sync brings the server value up to what we committed,
-  // release the draft. Until then the slider holds our position instead of
-  // snapping back to the stale prop.
+  // Once the live sync confirms our saved value, close the editor and release
+  // the draft — no snap-back, no accidental lingering edit state.
   useEffect(() => {
-    if (draft !== null && serverVal === draft) { setDraft(null); setSaving(false); }
+    if (draft !== null && serverVal === draft) { setDraft(null); setSaving(false); setEditing(false); }
   }, [serverVal, draft]);
 
-  const commit = async (v) => {
-    if (v === serverVal) { setDraft(null); return; }
-    setDraft(v);           // hold the new position on screen immediately
+  const startEdit = () => { setDraft(serverVal); setEditing(true); };
+  const cancelEdit = () => { setDraft(null); setEditing(false); };
+
+  const save = async () => {
+    const v = draft ?? serverVal;
+    if (v === serverVal) { cancelEdit(); return; }   // nothing changed
     setSaving(true);
     try { await setActivityProgress(task, actId, v, me); }
-    catch { setDraft(null); setSaving(false); }   // write failed — fall back to truth
+    catch { setDraft(null); setSaving(false); setEditing(false); }  // failed — revert
   };
 
   return (
@@ -56,17 +59,35 @@ function Activity({ task, actId, act, employees, canEdit, me }) {
         </span>
       </div>
 
-      {/* the slider carries the mover's colour, so the group reads contribution
-          without opening anything */}
-      <input type="range" min="0" max="100" step="5" value={val} disabled={!canEdit}
-             className="mt-3 w-full accent-blue disabled:opacity-50"
-             style={{ accentColor: act.updatedBy ? colorFor(act.updatedBy) : '#0B4E8C' }}
+      {/* The slider is read-only until the assigned person explicitly chooses to
+          update, so a stray tap can never change progress. While editing it
+          carries the mover's colour; otherwise it just displays the value. */}
+      <input type="range" min="0" max="100" step="5" value={val}
+             disabled={!editing}
+             className="mt-3 w-full accent-blue disabled:opacity-60 disabled:cursor-default"
+             style={{ accentColor: (editing || act.updatedBy) ? (editing ? '#0B4E8C' : colorFor(act.updatedBy)) : '#0B4E8C' }}
              onInput={(e) => setDraft(Number(e.target.value))}
-             onChange={(e) => setDraft(Number(e.target.value))}
-             onPointerUp={(e) => commit(Number(e.target.value))}
-             onMouseUp={(e) => commit(Number(e.target.value))}
-             onTouchEnd={(e) => commit(Number(e.target.value))}
-             onKeyUp={(e) => commit(Number(e.target.value))} />
+             onChange={(e) => setDraft(Number(e.target.value))} />
+
+      {canEdit && (
+        <div className="mt-2 flex items-center gap-2">
+          {!editing ? (
+            <button className="btn-ghost !py-1.5 text-xs" onClick={startEdit} disabled={saving}>
+              Update progress
+            </button>
+          ) : (
+            <>
+              <button className="btn-primary !py-1.5 text-xs" onClick={save} disabled={saving}>
+                {saving ? 'Saving…' : `Save ${val}%`}
+              </button>
+              <button className="btn-ghost !py-1.5 text-xs" onClick={cancelEdit} disabled={saving}>
+                Cancel
+              </button>
+              <span className="font-mono text-[11px] text-muted">Drag the slider, then Save</span>
+            </>
+          )}
+        </div>
+      )}
 
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5">
         {mover && (
@@ -149,7 +170,10 @@ export default function TaskDetail({ task, employees, onClose, isAdmin }) {
   }, [mine?.state, accepting]);
   const acts    = Object.entries(task.activities || {}).sort((a, b) => (a[1].order || 0) - (b[1].order || 0));
   const parts   = contributions(updates, task);
-  const canEdit = mine?.state === 'accepted' || task.createdBy === me.empId;
+  // Only people who accepted the task may record progress. The creator gets no
+  // special rights, and an admin only monitors — unless the admin is themselves
+  // an accepted member of this task.
+  const canEdit = mine?.state === 'accepted';
   const trail   = Object.entries(audit || {}).sort((a, b) => b[1].at - a[1].at);
   const exts    = Object.values(task.extensions || {});
 
@@ -259,7 +283,10 @@ export default function TaskDetail({ task, employees, onClose, isAdmin }) {
             <Activity key={id} task={task} actId={id} act={a} employees={employees} me={me} canEdit={canEdit} />
           ))}
           {!canEdit && mine?.state !== 'pending' && (
-            <p className="text-center text-[11px] text-muted">You are viewing this task. Only accepted members can record progress.</p>
+            <p className="text-center text-[11px] text-muted">
+              {isAdmin ? 'You are monitoring this task. Progress can only be recorded by the people it is assigned to.'
+                       : 'You are viewing this task. Only accepted members can record progress.'}
+            </p>
           )}
         </div>
       )}
