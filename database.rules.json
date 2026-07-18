@@ -114,6 +114,15 @@
           ".validate": "newData.child('empId').val() === auth.uid"
         }
       }
+    },
+    "templates": {
+      "$uid": {
+        ".read": "auth.uid === $uid",
+        ".write": "auth.uid === $uid",
+        "$tid": {
+          ".validate": "newData.hasChildren(['title','activities','createdAt'])"
+        }
+      }
     }
   }
 }

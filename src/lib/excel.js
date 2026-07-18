@@ -108,3 +108,73 @@ export async function downloadTemplate() {
   XLSX.utils.book_append_sheet(wb, ws, 'Employees');
   XLSX.writeFile(wb, 'kaarya-employee-template.xlsx');
 }
+
+/* --------------------------- task template import -------------------------- */
+
+const TPL_FIELDS = {
+  title:       ['task name', 'template name', 'title', 'task', 'name'],
+  description: ['description', 'desc', 'details'],
+  activities:  ['activities', 'activity', 'steps', 'checklist', 'sub tasks', 'subtasks']
+};
+
+function mapTplHeaders(row) {
+  const map = {};
+  for (const key of Object.keys(row)) {
+    const n = norm(key);
+    for (const [field, aliases] of Object.entries(TPL_FIELDS)) {
+      if (aliases.includes(n)) map[field] = key;
+    }
+  }
+  return map;
+}
+
+/**
+ * Parse a template workbook. One row per template. Activities live in a single
+ * cell separated by | or ; or newlines, OR spread across columns named
+ * Activity 1, Activity 2, … — both are understood. Reports errors as a dry run.
+ */
+export async function parseTemplateWorkbook(file) {
+  const XLSX = await sheetjs();
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type: 'array' });
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  const raw = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+  if (!raw.length) return { rows: [], errors: [{ row: '—', problem: 'The first sheet has no data rows.' }] };
+
+  const map = mapTplHeaders(raw[0]);
+  // any column literally called "Activity 1", "Activity 2", … becomes an activity slot
+  const actCols = Object.keys(raw[0]).filter((k) => /^activity\s*\d+$/i.test(norm(k)));
+
+  const rows = [], errors = [];
+  raw.forEach((r, i) => {
+    const line = i + 2;
+    const title = String(r[map.title] ?? '').trim();
+    if (!title) { if (Object.values(r).some((v) => String(v).trim())) errors.push({ row: line, problem: 'Template has no task name.' }); return; }
+
+    let activities = [];
+    if (map.activities && String(r[map.activities]).trim()) {
+      activities = String(r[map.activities]).split(/[|;\n]+/).map((s) => s.trim()).filter(Boolean);
+    }
+    for (const c of actCols) { const v = String(r[c] ?? '').trim(); if (v) activities.push(v); }
+
+    if (!activities.length) return errors.push({ row: line, problem: `"${title}" has no activities. Add an Activities column, or Activity 1, Activity 2… columns.` });
+
+    rows.push({ title, description: String(r[map.description] ?? '').trim(), activities });
+  });
+
+  return { rows, errors };
+}
+
+export async function downloadTemplateWorkbook() {
+  const XLSX = await sheetjs();
+  const ws = XLSX.utils.json_to_sheet([
+    { 'Task Name': 'Onboard a new hire', 'Description': 'Standard onboarding checklist',
+      'Activities': 'Create accounts | Assign workstation | Orientation session | First-week review' },
+    { 'Task Name': 'Publish a tender notice', 'Description': '',
+      'Activities': 'Draft notice; Legal review; Upload to portal; Circulate internally' }
+  ]);
+  ws['!cols'] = [{ wch: 26 }, { wch: 32 }, { wch: 60 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Templates');
+  XLSX.writeFile(wb, 'kaarya-task-templates.xlsx');
+}

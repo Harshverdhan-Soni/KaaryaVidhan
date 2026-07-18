@@ -151,3 +151,22 @@ export async function approveAssignment(taskId, empId) {
 export async function rejectAssignment(taskId, empId, reason) {
   await httpsCallable(fns, 'rejectAssignment')({ taskId, empId, reason });
 }
+
+/* -------------------------- task templates (private) ---------------------- */
+
+/** Save a reusable template under the current user. Activities is a string[]. */
+export async function saveTemplate(uid, { title, description, activities }) {
+  const id = push(ref(db, `templates/${uid}`)).key;
+  await set(ref(db, `templates/${uid}/${id}`), {
+    id,
+    title: title.trim(),
+    description: (description || '').trim(),
+    activities: activities.map((a) => a.trim()).filter(Boolean),
+    createdAt: Date.now()
+  });
+  return id;
+}
+
+export async function deleteTemplate(uid, tid) {
+  await set(ref(db, `templates/${uid}/${tid}`), null);
+}

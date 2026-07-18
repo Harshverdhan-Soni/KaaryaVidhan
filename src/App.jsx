@@ -6,6 +6,7 @@ import Dashboard from './pages/Dashboard';
 import Employees from './pages/Employees';
 import TaskDetail from './pages/TaskDetail';
 import TaskForm from './pages/TaskForm';
+import Templates from './pages/Templates';
 import { Avatar, Modal, Field } from './components/ui';
 import { LogoMark } from './components/Logo';
 import { httpsCallable } from 'firebase/functions';
@@ -80,6 +81,7 @@ export default function App() {
   const [view, setView]     = useState('tasks');
   const [open, setOpen]     = useState(null);   // open task id
   const [form, setForm]     = useState(false);
+  const [prefill, setPrefill] = useState(null);
   const [prof, setProf]     = useState(false);
   const live = useDb(open ? `tasks/${open}` : null, !!open);
 
@@ -99,15 +101,18 @@ export default function App() {
         ) : (
           <>
             <div className="mb-4 flex items-center gap-2">
-              {isAdmin && (
+              {(isAdmin || role === 'manager') && (
                 <div className="inline-flex gap-1 rounded-xl bg-blue/[.07] p-1">
-                  {[['tasks', 'Tasks'], ['people', 'Employees']].map(([v, l]) => (
+                  {(isAdmin
+                    ? [['tasks', 'Tasks'], ['people', 'Employees'], ['templates', 'Templates']]
+                    : [['tasks', 'Tasks'], ['templates', 'Templates']]
+                  ).map(([v, l]) => (
                     <button key={v} className={`tab ${view === v ? 'tab-on' : ''}`} onClick={() => setView(v)}>{l}</button>
                   ))}
                 </div>
               )}
               {view === 'tasks' && (
-                <button className="btn-primary ml-auto text-xs" onClick={() => setForm(true)}>
+                <button className="btn-primary ml-auto text-xs" onClick={() => { setPrefill(null); setForm(true); }}>
                   {role === 'employee' ? '+ Add a task' : '+ Create and assign'}
                 </button>
               )}
@@ -115,13 +120,15 @@ export default function App() {
 
             {view === 'people' && isAdmin
               ? <Employees employees={employees} />
-              : <Dashboard role={role} me={me} employees={employees} onOpen={(t) => setOpen(t.id)} />}
+              : view === 'templates' && (isAdmin || role === 'manager')
+                ? <Templates onUse={(t) => { setPrefill(t); setView('tasks'); setForm(true); }} />
+                : <Dashboard role={role} me={me} employees={employees} onOpen={(t) => setOpen(t.id)} />}
           </>
         )}
       </main>
 
-      <TaskForm open={form} onClose={() => setForm(false)} employees={employees} me={me}
-                role={role} onCreated={(id) => setOpen(id)} />
+      <TaskForm open={form} onClose={() => { setForm(false); setPrefill(null); }} employees={employees} me={me}
+                role={role} prefill={prefill} onCreated={(id) => setOpen(id)} />
       <ProfileModal open={prof} onClose={() => setProf(false)} me={me} role={role} />
 
       <footer className="mx-auto max-w-6xl px-4 pb-8 pt-4">

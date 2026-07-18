@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { Modal, Field, Avatar, Chip } from '../components/ui';
 import { createTask } from '../lib/db';
 import { toDateInput, initialMemberState } from '../lib/progress';
@@ -11,7 +11,7 @@ import { toDateInput, initialMemberState } from '../lib/progress';
  * The member's starting state (accept gate vs manager-approval gate) is decided
  * by initialMemberState, not here — this form just picks people.
  */
-export default function TaskForm({ open, onClose, employees, me, role, onCreated }) {
+export default function TaskForm({ open, onClose, employees, me, role, prefill, onCreated }) {
   const isEmployee = role === 'employee';
   const isManager  = role === 'manager';
   const origin = isEmployee ? 'self' : 'assigned';
@@ -24,6 +24,19 @@ export default function TaskForm({ open, onClose, employees, me, role, onCreated
   const [sel, setSel]     = useState(isEmployee ? [me.empId] : []);
   const [q, setQ]         = useState('');
   const [busy, setBusy]   = useState(false);
+
+  // When the form opens from a template, seed the name, description and
+  // activities; department, deadline and people stay for the user to fill.
+  const seededFrom = useRef(null);
+  useEffect(() => {
+    if (open && prefill && seededFrom.current !== prefill) {
+      seededFrom.current = prefill;
+      setTitle(prefill.title || '');
+      setDesc(prefill.description || '');
+      setActs(prefill.activities?.length ? [...prefill.activities] : ['']);
+    }
+    if (!open) seededFrom.current = null;
+  }, [open, prefill]);
 
   // Who this person is allowed to assign to.
   const assignable = useMemo(() => {
@@ -69,7 +82,7 @@ export default function TaskForm({ open, onClose, employees, me, role, onCreated
 
   return (
     <Modal open={open} onClose={onClose} wide
-           title={origin === 'self' ? 'Add a task' : 'Create and assign a task'}>
+           title={prefill ? `From template: ${prefill.title}` : origin === 'self' ? 'Add a task' : 'Create and assign a task'}>
       <div className="space-y-4">
         <Field label="Task">
           <input className="field" value={title} onChange={(e) => setTitle(e.target.value)}
