@@ -19,6 +19,7 @@ function Activity({ task, actId, act, employees, canEdit, me }) {
   const [editing, setEditing] = useState(false); // is the slider unlocked?
   const [draft, setDraft] = useState(null);      // pending value while editing / awaiting sync
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved]   = useState('');    // inline 'updated' confirmation
   const [text, setText]   = useState('');
   const comments = useDb(`comments/${task.id}/${actId}`, open);
   const list = Object.entries(comments || {}).sort((a, b) => a[1].at - b[1].at);
@@ -34,17 +35,24 @@ function Activity({ task, actId, act, employees, canEdit, me }) {
   // is true, so merely dragging the slider back to the current value can't
   // trip this and slam the editor shut.
   useEffect(() => {
-    if (saving && draft !== null && serverVal === draft) {
-      setDraft(null); setSaving(false); setEditing(false);
-    }
-  }, [serverVal, draft, saving]);
+    if (!saved) return;
+    const t = setTimeout(() => setSaved(''), 5000);
+    return () => clearTimeout(t);
+  }, [saved]);
 
   const save = async () => {
     const v = draft ?? serverVal;
     if (v === serverVal) { cancelEdit(); return; }   // nothing changed
     setSaving(true);
-    try { await setActivityProgress(task, actId, v, me); }
-    catch { setDraft(null); setSaving(false); setEditing(false); }  // failed — revert
+    try {
+      await setActivityProgress(task, actId, v, me);
+      // Confirm the moment the write resolves, so a slow sync can never leave
+      // the button stuck on "Saving…".
+      setSaved(`Progress updated to ${v}%`);
+      setDraft(null); setEditing(false);
+    }
+    catch { setDraft(null); setEditing(false); }     // failed — revert
+    finally { setSaving(false); }
   };
 
   return (
@@ -83,9 +91,17 @@ function Activity({ task, actId, act, employees, canEdit, me }) {
       {canEdit && (
         <div className="mt-2 flex items-center gap-2">
           {!editing ? (
-            <button className="btn-ghost !py-1.5 text-xs" onClick={startEdit} disabled={saving}>
-              Update progress
-            </button>
+            <>
+              <button className="btn-ghost !py-1.5 text-xs" onClick={startEdit} disabled={saving}>
+                Update progress
+              </button>
+              {saved && (
+                <span className="flex items-center gap-1.5 text-xs font-medium text-ok">
+                  <span className="grid h-4 w-4 place-items-center rounded-full bg-ok text-white text-[9px]">✓</span>
+                  {saved}
+                </span>
+              )}
+            </>
           ) : (
             <>
               <button className="btn-primary !py-1.5 text-xs" onClick={save} disabled={saving}>
@@ -163,7 +179,7 @@ export default function TaskDetail({ task, employees, onClose, isAdmin }) {
   const [delOpen, setDelOpen]   = useState(false);
   const [accepting, setAccepting] = useState(false);
   const [declining, setDeclining] = useState(false);
-  const [justActed, setJustActed] = useState(false);
+  const [justActed, setJustActed] = useState('');   // confirmation text after accept/decline
   const [respondErr, setRespondErr] = useState('');
   const [addOpen, setAddOpen]   = useState(false);
 
@@ -179,16 +195,14 @@ export default function TaskDetail({ task, employees, onClose, isAdmin }) {
     || Object.keys(task.members || {}).some((id) => employees?.[id]?.managerId === me.empId);
   const myRole = isAdmin ? 'admin' : (me.role || 'employee');
 
-  // When our accept lands (the live task sync flips our state to 'accepted'),
-  // clear the busy flag and flash a confirmation that fades after a few seconds.
+  // A confirmation shown after accept/decline. Set the moment the write
+  // resolves — not when a later sync happens to arrive — so the button can
+  // never stick on "Accepting…" if the sync is slow.
   useEffect(() => {
-    if (mine?.state === 'accepted' && accepting) {
-      setAccepting(false);
-      setJustActed(true);
-      const t = setTimeout(() => setJustActed(false), 6000);
-      return () => clearTimeout(t);
-    }
-  }, [mine?.state, accepting]);
+    if (!justActed) return;
+    const t = setTimeout(() => setJustActed(false), 7000);
+    return () => clearTimeout(t);
+  }, [justActed]);
   const acts    = Object.entries(task.activities || {}).sort((a, b) => (a[1].order || 0) - (b[1].order || 0));
   const parts   = contributions(updates, task);
   // Only people who accepted the task may record progress. The creator gets no
@@ -258,8 +272,12 @@ export default function TaskDetail({ task, employees, onClose, isAdmin }) {
             <button className="btn-primary text-xs" disabled={accepting}
                     onClick={async () => {
                       setRespondErr(''); setAccepting(true);
-                      try { await respondToTask(task, me, true); }
-                      catch { setRespondErr('Could not accept the task. Check your connection and try again.'); setAccepting(false); }
+                      try {
+                        await respondToTask(task, me, true);
+                        setJustActed('Task accepted — you can now record progress on the activities below.');
+                      }
+                      catch { setRespondErr('Could not accept the task. Check your connection and try again.'); }
+                      finally { setAccepting(false); }
                     }}>
               {accepting ? 'Accepting…' : 'Accept task'}
             </button>
@@ -267,11 +285,11 @@ export default function TaskDetail({ task, employees, onClose, isAdmin }) {
           </div>
         </div>
       )}
-      {mine?.state === 'accepted' && justActed && (
+      {justActed && (
         <div className="card border-ok/40 bg-ok/[.04] p-4">
           <p className="flex items-center gap-2 text-sm font-medium text-ok">
             <span className="grid h-5 w-5 place-items-center rounded-full bg-ok text-white text-xs">✓</span>
-            Task accepted — you can now record progress on the activities below.
+            {justActed}
           </p>
         </div>
       )}
@@ -379,8 +397,13 @@ export default function TaskDetail({ task, employees, onClose, isAdmin }) {
           <button className="btn-danger w-full" disabled={!reason.trim() || declining}
                   onClick={async () => {
                     setDeclining(true);
-                    try { await respondToTask(task, me, false, reason); setDenyOpen(false); setReason(''); }
-                    catch { setDeclining(false); }
+                    try {
+                      await respondToTask(task, me, false, reason);
+                      setDenyOpen(false); setReason('');
+                      setJustActed('Task declined — the administrator has been notified and can reassign it.');
+                    }
+                    catch { /* keep the modal open so the reason isn't lost */ }
+                    finally { setDeclining(false); }
                   }}>
             {declining ? 'Declining…' : 'Decline task'}
           </button>
