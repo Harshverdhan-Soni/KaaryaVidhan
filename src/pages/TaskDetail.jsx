@@ -179,12 +179,21 @@ export default function TaskDetail({ task, employees, onClose, isAdmin }) {
   const [delOpen, setDelOpen]   = useState(false);
   const [accepting, setAccepting] = useState(false);
   const [declining, setDeclining] = useState(false);
+  const [myState, setMyState]   = useState('');   // local echo of my accept/decline
   const [justActed, setJustActed] = useState('');   // confirmation text after accept/decline
   const [respondErr, setRespondErr] = useState('');
   const [addOpen, setAddOpen]   = useState(false);
 
   const st      = statusOf(task);
-  const mine    = task.members?.[me.empId];
+  // My membership row. After I accept or decline, apply that locally straight
+  // away rather than waiting for the live sync to echo it back — otherwise the
+  // Accept buttons linger and the progress controls stay hidden on a slow
+  // connection. The override is dropped as soon as the server agrees.
+  const serverMine = task.members?.[me.empId];
+  const mine = (myState && serverMine) ? { ...serverMine, state: myState } : serverMine;
+  useEffect(() => {
+    if (myState && serverMine?.state === myState) setMyState('');
+  }, [serverMine?.state, myState]);
 
   // Reassign is only offered once the deadline has passed. Add Employee is
   // always available while the task runs. A manager can manage a task their own
@@ -274,6 +283,7 @@ export default function TaskDetail({ task, employees, onClose, isAdmin }) {
                       setRespondErr(''); setAccepting(true);
                       try {
                         await respondToTask(task, me, true);
+                        setMyState('accepted');
                         setJustActed('Task accepted — you can now record progress on the activities below.');
                       }
                       catch { setRespondErr('Could not accept the task. Check your connection and try again.'); }
@@ -399,6 +409,7 @@ export default function TaskDetail({ task, employees, onClose, isAdmin }) {
                     setDeclining(true);
                     try {
                       await respondToTask(task, me, false, reason);
+                      setMyState('denied');
                       setDenyOpen(false); setReason('');
                       setJustActed('Task declined — the administrator has been notified and can reassign it.');
                     }
