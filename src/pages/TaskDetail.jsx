@@ -222,7 +222,27 @@ function Activity({ task, actId, act, employees, canEdit, me, mayValidate }) {
 
 /* -------------------------------- the screen ------------------------------- */
 
-export default function TaskDetail({ task, employees, onClose, isAdmin }) {
+export default function TaskDetail({ task: taskProp, employees, onClose, isAdmin }) {
+  // People added from the Add-employee modal are shown straight away rather than
+  // waiting for the live sync to echo them back — otherwise the Team tab looks
+  // unchanged and it seems as though nothing happened. Each override is dropped
+  // as soon as the server's copy of the task contains that person.
+  const [pendingAdds, setPendingAdds] = useState({});
+  const task = useMemo(() => (
+    Object.keys(pendingAdds).length
+      ? { ...taskProp, members: { ...(taskProp.members || {}), ...pendingAdds } }
+      : taskProp
+  ), [taskProp, pendingAdds]);
+
+  useEffect(() => {
+    const onServer = taskProp.members || {};
+    const stillMissing = Object.fromEntries(
+      Object.entries(pendingAdds).filter(([id]) => !onServer[id]));
+    if (Object.keys(stillMissing).length !== Object.keys(pendingAdds).length) {
+      setPendingAdds(stillMissing);
+    }
+  }, [taskProp.members]);
+
   const updates = useDb(`updates/${task.id}`);
   const audit   = useDb(`audit/${task.id}`);
   const { me }  = useAuthed();
@@ -481,7 +501,8 @@ export default function TaskDetail({ task, employees, onClose, isAdmin }) {
 
       <ExtendModal open={extOpen} onClose={() => setExtOpen(false)} task={task} me={me} />
       <ReassignModal open={reaOpen} onClose={() => setReaOpen(false)} task={task} me={me} employees={employees} />
-      <AddMemberModal open={addOpen} onClose={() => setAddOpen(false)} task={task} me={me} employees={employees} myRole={myRole} isAdmin={isAdmin} />
+      <AddMemberModal open={addOpen} onClose={() => setAddOpen(false)} task={task} me={me} employees={employees} myRole={myRole} isAdmin={isAdmin}
+                      onAdded={(rows) => setPendingAdds((p) => ({ ...p, ...rows }))} />
       <EditTaskModal open={editOpen} onClose={() => setEditOpen(false)} task={task} me={me} employees={employees} />
 
       <DangerConfirm
@@ -748,13 +769,14 @@ function ManagerApprovalPanel({ task, me, employees }) {
 
 /* --------------------------- add employees mid-task ------------------------ */
 
-function AddMemberModal({ open, onClose, task, me, employees, myRole, isAdmin }) {
+function AddMemberModal({ open, onClose, task, me, employees, myRole, isAdmin, onAdded }) {
   const [sel, setSel]   = useState([]);
   const [q, setQ]       = useState('');
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(null);
+  const [err, setErr]   = useState('');
 
-  useMemo(() => { if (open) { setSel([]); setQ(''); setDone(null); setBusy(false); } }, [open]);
+  useEffect(() => { if (open) { setSel([]); setQ(''); setDone(null); setErr(''); setBusy(false); } }, [open]);
 
   const existing = task.members || {};
   // Who can be added: anyone not already on the task. A manager adding is scoped
@@ -768,10 +790,16 @@ function AddMemberModal({ open, onClose, task, me, employees, myRole, isAdmin })
   const iAmOnTask = !!existing[me.empId];
 
   const add = async () => {
-    setBusy(true);
-    const res = await addMembers(task, sel, me, { employees, role: myRole });
-    setBusy(false);
-    setDone(res.added);
+    setBusy(true); setErr('');
+    try {
+      const res = await addMembers(task, sel, me, { employees, role: myRole });
+      // Hand the new rows up so the Team tab shows them at once.
+      const rows = Object.fromEntries(res.added.map((a) => [a.id, a.row]));
+      onAdded?.(rows);
+      setDone(res.added);
+    } catch (e) {
+      setErr('Could not add those people. You may not have permission on this task, or the connection dropped.');
+    } finally { setBusy(false); }
   };
 
   return (
@@ -824,6 +852,7 @@ function AddMemberModal({ open, onClose, task, me, employees, myRole, isAdmin })
               );
             })}
           </div>
+          {err && <p className="rounded-lg bg-bad/10 px-3 py-2 text-xs text-bad">{err}</p>}
           <button className="btn-primary w-full" disabled={!sel.length || busy} onClick={add}>
             {busy ? 'Adding…' : `Add ${sel.length} ${sel.length === 1 ? 'person' : 'people'}`}
           </button>

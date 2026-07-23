@@ -242,7 +242,7 @@ export async function addMembers(task, empIds, me, ctx = {}) {
       ? initialMemberState({ empId: me.empId, role: ctx.role || 'admin' }, assignee)
       : { state: 'pending', at: Date.now() };
     patch[`tasks/${task.id}/members/${id}`] = state;
-    added.push({ id, state: state.state });
+    added.push({ id, state: state.state, row: state });
   }
   if (!Object.keys(patch).length) return { added: [] };
   await update(ref(db), patch);
@@ -257,8 +257,12 @@ export async function addMembers(task, empIds, me, ctx = {}) {
         title: `Added to a task: ${task.title}`, body: `${me.name} added you. Open it to accept or decline.` });
     }
   }
-  await audit(task.id, me.empId, 'added members',
-    added.map((a) => `${ctx.employees?.[a.id]?.name || a.id}${a.state === 'awaiting_manager' ? ' (awaiting approval)' : ''}`).join(', '));
+  // The members are already saved at this point. An audit failure must not make
+  // the caller think the add failed, so it is logged rather than thrown.
+  try {
+    await audit(task.id, me.empId, 'added members',
+      added.map((a) => `${ctx.employees?.[a.id]?.name || a.id}${a.state === 'awaiting_manager' ? ' (awaiting approval)' : ''}`).join(', '));
+  } catch (e) { console.warn('audit not written', e); }
   return { added };
 }
 

@@ -57,8 +57,14 @@ export default function NotificationBell({ me, onOpenTask }) {
       </button>
 
       {open && (
-        <div className="absolute right-0 z-50 mt-2 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-line bg-white shadow-xl">
-          <div className="flex items-center justify-between border-b border-line px-3.5 py-2.5">
+        <>
+          {/* On a narrow screen the panel is anchored to the viewport, not to the
+              bell — anchoring to the bell pushes it off the left edge and it gets
+              clipped. A dim backdrop makes it read as a sheet on mobile. */}
+          <div className="fixed inset-0 z-40 bg-ink/20 sm:hidden" onClick={() => setOpen(false)} />
+          <div className="fixed left-3 right-3 top-[4.25rem] z-50 max-h-[75vh] overflow-hidden rounded-xl border border-line bg-white shadow-xl
+                          sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:max-h-none sm:w-[22rem]">
+            <div className="flex items-center justify-between border-b border-line px-3.5 py-2.5">
             <p className="text-sm font-semibold">Notifications</p>
             {list.length > 0 && (
               <div className="flex gap-2">
@@ -72,7 +78,7 @@ export default function NotificationBell({ me, onOpenTask }) {
             )}
           </div>
 
-          <div className="max-h-80 overflow-y-auto">
+          <div className="max-h-[calc(75vh-7rem)] overflow-y-auto sm:max-h-80">
             {list.length === 0 && (
               <p className="px-3.5 py-8 text-center text-xs text-muted">
                 Nothing yet. You'll be told when a task needs you.
@@ -113,8 +119,9 @@ export default function NotificationBell({ me, onOpenTask }) {
                 {pushState === 'working' ? 'Enabling…' : 'Notify me on this device'}
               </button>
             )}
+            </div>
           </div>
-        </div>
+        </>
       )}
     </div>
   );
