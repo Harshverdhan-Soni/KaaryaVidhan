@@ -63,6 +63,15 @@
             },
             "updatedAt": {
               ".write": "auth != null"
+            },
+            "approvedAt": {
+              ".write": "auth.token.role === 'admin' || root.child('tasks/'+$taskId+'/createdBy').val() === auth.uid || (root.child('tasks/'+$taskId+'/members/'+auth.uid+'/state').val() === 'accepted' && !newData.exists())"
+            },
+            "approvedBy": {
+              ".write": "auth.token.role === 'admin' || root.child('tasks/'+$taskId+'/createdBy').val() === auth.uid || (root.child('tasks/'+$taskId+'/members/'+auth.uid+'/state').val() === 'accepted' && !newData.exists())"
+            },
+            "reworkNote": {
+              ".write": "auth.token.role === 'admin' || root.child('tasks/'+$taskId+'/createdBy').val() === auth.uid"
             }
           }
         },
@@ -122,6 +131,21 @@
         "$tid": {
           ".validate": "newData.hasChildren(['title','activities','createdAt'])"
         }
+      }
+    },
+    "notifications": {
+      "$uid": {
+        ".read": "auth.uid === $uid",
+        ".write": "auth != null",
+        "$nid": {
+          ".validate": "newData.hasChildren(['type','title','at']) || !newData.exists()"
+        }
+      }
+    },
+    "fcmTokens": {
+      "$uid": {
+        ".read": "auth.uid === $uid",
+        ".write": "auth.uid === $uid"
       }
     }
   }

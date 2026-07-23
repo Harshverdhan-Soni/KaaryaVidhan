@@ -4,6 +4,8 @@ import { initializeApp } from 'firebase-admin/app';
 import { getDatabase } from 'firebase-admin/database';
 import { getAuth } from 'firebase-admin/auth';
 import { createHash, randomInt } from 'node:crypto';
+import { onValueCreated } from 'firebase-functions/v2/database';
+import { getMessaging } from 'firebase-admin/messaging';
 
 initializeApp();
 setGlobalOptions({ region: 'asia-south1', maxInstances: 10 });
@@ -316,3 +318,60 @@ export const rejectAssignment = onCall(async (req) => {
   });
   return { ok: true, removed: empId };
 });
+
+/* -------------------------------------------------------------------------- */
+/*  Push delivery                                                             */
+/*                                                                            */
+/*  Every in-app notification written to /notifications/{empId}/{id} is        */
+/*  mirrored out as a real push to that person's registered devices. Doing it  */
+/*  with a database trigger rather than at each call site means the in-app     */
+/*  notice and the push can never disagree, and the app keeps working normally */
+/*  if messaging is not configured — this function simply finds no tokens.     */
+/* -------------------------------------------------------------------------- */
+
+export const pushOnNotification = onValueCreated(
+  // NOTE: database triggers run through Eventarc and must be deployed in the
+  // REGION OF THE DATABASE INSTANCE — not the region the other functions use.
+  // This database lives in asia-southeast1; the callable functions are in
+  // asia-south1. Deploying this one to asia-south1 fails with
+  // "cannot create a trigger in region asia-south1".
+  { ref: '/notifications/{empId}/{nid}', region: 'asia-southeast1' },
+  async (event) => {
+    const n = event.data.val() || {};
+    const empId = event.params.empId;
+
+    const tokensSnap = await db().ref(`fcmTokens/${empId}`).get();
+    const tokens = Object.keys(tokensSnap.val() || {});
+    if (!tokens.length) return;
+
+    const message = {
+      // Data-only, so the service worker decides how to display it. This keeps
+      // the notification identical whether the app is open, backgrounded or shut.
+      data: {
+        title: String(n.title || 'KaaryaVidhan'),
+        body: String(n.body || ''),
+        taskId: String(n.taskId || ''),
+        type: String(n.type || '')
+      },
+      webpush: {
+        headers: { Urgency: 'high' },
+        fcmOptions: { link: '/' }
+      },
+      tokens
+    };
+
+    const res = await getMessaging().sendEachForMulticast(message);
+
+    // Prune tokens the device no longer honours, so the list cannot grow stale.
+    const dead = [];
+    res.responses.forEach((r, i) => {
+      const code = r.error?.code || '';
+      if (!r.success && /registration-token-not-registered|invalid-argument/.test(code)) dead.push(tokens[i]);
+    });
+    if (dead.length) {
+      const patch = {};
+      for (const t of dead) patch[`fcmTokens/${empId}/${t}`] = null;
+      await db().ref().update(patch);
+    }
+  }
+);

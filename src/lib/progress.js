@@ -20,6 +20,49 @@ export function daysLeft(task, now = Date.now()) {
   return Math.ceil((task.deadline - now) / DAY);
 }
 
+
+/* ---------------------- activity completion validation --------------------- */
+
+/**
+ * An activity's completion state.
+ *   'open'     — below 100%, still being worked on
+ *   'awaiting' — at 100%, waiting for the task owner (or an admin) to validate
+ *   'approved' — at 100% and signed off
+ * Reaching 100% is a claim by the person doing the work; it only counts once
+ * whoever assigned the task has confirmed it.
+ */
+export function activityState(act) {
+  const pct = Number(act?.progress) || 0;
+  if (pct < 99.5) return 'open';
+  return act?.approvedAt ? 'approved' : 'awaiting';
+}
+
+export const ACTIVITY_LABEL = {
+  open: '',
+  awaiting: 'Awaiting approval',
+  approved: 'Approved'
+};
+
+/** Activities at 100% still waiting to be validated. */
+export function activitiesAwaiting(task) {
+  return Object.entries(task?.activities || {}).filter(([, a]) => activityState(a) === 'awaiting');
+}
+
+/** True only when every activity is at 100% AND validated. */
+export function allActivitiesApproved(task) {
+  const acts = Object.values(task?.activities || {});
+  if (!acts.length) return false;
+  return acts.every((a) => activityState(a) === 'approved');
+}
+
+/**
+ * May this person validate a completed activity? The task's creator or any
+ * admin — never the person who merely recorded the progress.
+ */
+export function canValidate(task, me, isAdmin) {
+  return !!(isAdmin || task?.createdBy === me?.empId);
+}
+
 /**
  * Status drives every colour in the app. Order matters: finished and breached
  * are facts, everything else is a judgement about pace.
@@ -30,6 +73,11 @@ export function statusOf(task, now = Date.now()) {
 
   if (task.status === 'cancelled') return { key: 'cancelled', label: 'Cancelled', color: '#5A7391', actual, expected, left };
   if (actual >= 99.5) {
+    // All the work is claimed done — but the task is only genuinely complete
+    // once every activity has been validated by the task owner or an admin.
+    if (!allActivitiesApproved(task)) {
+      return { key: 'validating', label: 'Awaiting approval', color: '#0B4E8C', actual, expected, left };
+    }
     const late = task.completedAt && task.completedAt > task.deadline;
     return { key: 'completed', label: late ? 'Completed late' : 'Completed', color: late ? '#E8801A' : '#1F8A4C', actual, expected, left };
   }

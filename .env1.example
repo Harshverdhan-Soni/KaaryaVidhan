@@ -6,6 +6,3 @@ VITE_FB_STORAGE_BUCKET=
 VITE_FB_MESSAGING_SENDER_ID=
 VITE_FB_APP_ID=
 VITE_FN_REGION=asia-south1
-
-# Optional — enables real push notifications. See PUSH-SETUP.md
-VITE_FCM_VAPID_KEY=

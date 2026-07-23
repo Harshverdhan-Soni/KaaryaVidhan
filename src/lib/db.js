@@ -1,6 +1,7 @@
 import { ref, push, update, set, serverTimestamp, get } from 'firebase/database';
 import { db, fns } from './firebase';
 import { initialMemberState } from './progress';
+import { notify } from './notify';
 import { httpsCallable } from 'firebase/functions';
 
 /** Nothing changes without leaving a trace. Called by every mutation below. */
@@ -23,6 +24,10 @@ export async function setActivityProgress(task, actId, next, me) {
     [`tasks/${task.id}/activities/${actId}/progress`]: val,
     [`tasks/${task.id}/activities/${actId}/updatedBy`]: me.empId,
     [`tasks/${task.id}/activities/${actId}/updatedAt`]: Date.now(),
+    // Any change re-opens validation: an activity that was signed off and then
+    // moved again must be approved afresh.
+    [`tasks/${task.id}/activities/${actId}/approvedAt`]: null,
+    [`tasks/${task.id}/activities/${actId}/approvedBy`]: null,
     [`tasks/${task.id}/lastActivityAt`]: Date.now(),
     [`updates/${task.id}/${updId}`]: {
       actId, empId: me.empId, from: prev, to: val, delta: val - prev, at: Date.now()
@@ -34,21 +39,23 @@ export async function setActivityProgress(task, actId, next, me) {
   acts[actId] = { ...acts[actId], progress: val };
   const list = Object.values(acts);
   const mean = list.reduce((s, a) => s + (Number(a.progress) || 0), 0) / (list.length || 1);
-  if (mean >= 99.5 && !task.completedAt) {
-    patch[`tasks/${task.id}/completedAt`] = Date.now();
-    patch[`tasks/${task.id}/status`] = 'completed';
-    // Pending manager-approvals on a completed task are moot. We do NOT remove
-    // the member rows here (a non-admin completer lacks permission to edit other
-    // members), so completed tasks are treated as having no live approvals at
-    // read time — see `livePendingApprovals` in progress.js, used by the
-    // Approvals inbox and the approval panel.
-  } else if (mean < 99.5 && task.completedAt) {
+  // Reaching 100% is a claim, not completion. The task is only marked complete
+  // once EVERY activity has also been validated — which this write cannot do,
+  // since it just cleared this activity's approval. So completion is settled in
+  // approveActivity() instead, and any change here un-completes the task.
+  if (task.completedAt) {
     patch[`tasks/${task.id}/completedAt`] = null;
     patch[`tasks/${task.id}/status`] = 'active';
   }
 
   await update(ref(db), patch);
   await audit(task.id, me.empId, 'progress', `${task.activities[actId]?.title}: ${prev}% → ${val}%`);
+  // Hitting 100% is a claim that needs signing off — tell whoever owns the task.
+  if (val >= 100 && prev < 100 && task.createdBy !== me.empId) {
+    notify(task.createdBy, { type: 'validate', taskId: task.id,
+      title: `Ready for your approval: ${task.activities[actId]?.title}`,
+      body: `${me.name} marked it complete in "${task.title}".` });
+  }
 }
 
 export async function toggleBlocked(task, actId, blocked, me) {
@@ -70,6 +77,11 @@ export async function respondToTask(task, me, accepted, reason = '') {
     at: Date.now()
   });
   await audit(task.id, me.empId, accepted ? 'accepted' : 'denied', reason);
+  notify(task.createdBy, {
+    type: accepted ? 'accepted' : 'rejected', taskId: task.id,
+    title: `${me.name} ${accepted ? 'accepted' : 'declined'}: ${task.title}`,
+    body: accepted ? 'They can now record progress.' : (reason ? `Reason: ${reason}` : 'You can reassign it.')
+  });
 }
 
 export async function extendDeadline(task, newDeadline, reason, me) {
@@ -118,6 +130,18 @@ export async function createTask(t, me) {
   const id = push(ref(db, 'tasks')).key;
   await set(ref(db, `tasks/${id}`), { ...t, id, createdBy: me.empId, createdAt: Date.now() });
   await audit(id, me.empId, 'created', t.title);
+  // Tell each person what the task needs from them: employees are asked to
+  // accept, managers are asked to approve on their report's behalf.
+  for (const [empId, m] of Object.entries(t.members || {})) {
+    if (empId === me.empId) continue;
+    if (m.state === 'pending') {
+      notify(empId, { type: 'assigned', taskId: id,
+        title: `New task: ${t.title}`, body: `Assigned by ${me.name}. Open it to accept or decline.` });
+    } else if (m.state === 'awaiting_manager' && m.approver) {
+      notify(m.approver, { type: 'approval', taskId: id,
+        title: `Approval needed: ${t.title}`, body: `${me.name} assigned this to one of your reports.` });
+    }
+  }
   return id;
 }
 
@@ -169,8 +193,11 @@ export async function updateTaskFields(taskId, fields, me) {
 
 /* Manager approval gate — these call the server, which verifies the caller is
    the recorded approver before doing anything. */
-export async function approveAssignment(taskId, empId) {
+export async function approveAssignment(taskId, empId, ctx = {}) {
   await httpsCallable(fns, 'approveAssignment')({ taskId, empId });
+  notify(empId, { type: 'assigned', taskId,
+    title: `New task: ${ctx.taskTitle || 'a task'}`,
+    body: 'Your manager approved it. Open it to accept or decline.' });
 }
 export async function rejectAssignment(taskId, empId, reason) {
   await httpsCallable(fns, 'rejectAssignment')({ taskId, empId, reason });
@@ -219,7 +246,75 @@ export async function addMembers(task, empIds, me, ctx = {}) {
   }
   if (!Object.keys(patch).length) return { added: [] };
   await update(ref(db), patch);
+  for (const a of added) {
+    if (a.id === me.empId) continue;
+    if (a.state === 'awaiting_manager') {
+      const approver = ctx.employees?.[a.id]?.managerId;
+      if (approver) notify(approver, { type: 'approval', taskId: task.id,
+        title: `Approval needed: ${task.title}`, body: `${me.name} added one of your reports to this task.` });
+    } else {
+      notify(a.id, { type: 'assigned', taskId: task.id,
+        title: `Added to a task: ${task.title}`, body: `${me.name} added you. Open it to accept or decline.` });
+    }
+  }
   await audit(task.id, me.empId, 'added members',
     added.map((a) => `${ctx.employees?.[a.id]?.name || a.id}${a.state === 'awaiting_manager' ? ' (awaiting approval)' : ''}`).join(', '));
   return { added };
+}
+
+/* ------------------- activity completion validation ------------------------ */
+
+/**
+ * The task owner (or an admin) signs off an activity that has been marked 100%.
+ * If that was the last one outstanding, the whole task becomes complete — this
+ * is the ONLY place a task is marked completed, so a task can never be finished
+ * on an unvalidated claim.
+ */
+export async function approveActivity(task, actId, me) {
+  const now = Date.now();
+  const patch = {
+    [`tasks/${task.id}/activities/${actId}/approvedAt`]: now,
+    [`tasks/${task.id}/activities/${actId}/approvedBy`]: me.empId
+  };
+
+  // Would every activity now be approved?
+  const acts = { ...(task.activities || {}) };
+  acts[actId] = { ...acts[actId], approvedAt: now };
+  const all = Object.values(acts);
+  const done = all.length > 0 && all.every(
+    (a) => (Number(a.progress) || 0) >= 99.5 && a.approvedAt);
+
+  if (done) {
+    patch[`tasks/${task.id}/completedAt`] = now;
+    patch[`tasks/${task.id}/status`] = 'completed';
+  }
+  await update(ref(db), patch);
+  await audit(task.id, me.empId, 'approved activity',
+    `${task.activities?.[actId]?.title || actId}${done ? ' — task complete' : ''}`);
+  const worker = task.activities?.[actId]?.updatedBy;
+  if (worker && worker !== me.empId) {
+    notify(worker, { type: 'completed', taskId: task.id,
+      title: `Approved: ${task.activities?.[actId]?.title || 'activity'}`,
+      body: done ? `"${task.title}" is now complete.` : `${me.name} signed off your work.` });
+  }
+  return { taskCompleted: done };
+}
+
+/** Send an activity back for more work: clears the sign-off and the completion. */
+export async function rejectActivity(task, actId, me, note = '') {
+  await update(ref(db), {
+    [`tasks/${task.id}/activities/${actId}/approvedAt`]: null,
+    [`tasks/${task.id}/activities/${actId}/approvedBy`]: null,
+    [`tasks/${task.id}/activities/${actId}/reworkNote`]: note.trim() || null,
+    [`tasks/${task.id}/completedAt`]: null,
+    [`tasks/${task.id}/status`]: 'active'
+  });
+  await audit(task.id, me.empId, 'sent back',
+    `${task.activities?.[actId]?.title || actId}${note ? ' — ' + note.trim() : ''}`);
+  const w = task.activities?.[actId]?.updatedBy;
+  if (w && w !== me.empId) {
+    notify(w, { type: 'rejected', taskId: task.id,
+      title: `Sent back: ${task.activities?.[actId]?.title || 'activity'}`,
+      body: note.trim() || `${me.name} asked for more work on this.` });
+  }
 }

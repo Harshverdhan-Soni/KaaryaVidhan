@@ -6,20 +6,25 @@ import { Avatar, Chip, Modal, Field, DangerConfirm } from '../components/ui';
 import { httpsCallable } from 'firebase/functions';
 import { fns } from '../lib/firebase';
 import { colorFor, colorForInTask } from '../lib/colors';
-import { statusOf, contributions, fmtDate, fmtDateTime, toDateInput, initialMemberState, isCompleted, livePendingApprovals } from '../lib/progress';
+import { statusOf, contributions, fmtDate, fmtDateTime, toDateInput, initialMemberState, isCompleted, livePendingApprovals, activityState, canValidate, activitiesAwaiting } from '../lib/progress';
 import {
   setActivityProgress, toggleBlocked, addComment, respondToTask, extendDeadline, reassignTask, updateTaskFields, addMembers,
+  approveActivity, rejectActivity,
   approveAssignment, rejectAssignment
 } from '../lib/db';
 
 /* ------------------------------- one activity ------------------------------ */
 
-function Activity({ task, actId, act, employees, canEdit, me }) {
+function Activity({ task, actId, act, employees, canEdit, me, mayValidate }) {
   const [open, setOpen]   = useState(false);
   const [editing, setEditing] = useState(false); // is the slider unlocked?
   const [draft, setDraft] = useState(null);      // pending value while editing / awaiting sync
   const [saving, setSaving] = useState(false);
   const [saved, setSaved]   = useState('');    // inline 'updated' confirmation
+  const [vBusy, setVBusy]   = useState(false); // approving / sending back
+  const [sendBack, setSendBack] = useState(false);
+  const [note, setNote]     = useState('');
+  const aState = activityState(act);
   const [text, setText]   = useState('');
   const comments = useDb(`comments/${task.id}/${actId}`, open);
   const list = Object.entries(comments || {}).sort((a, b) => a[1].at - b[1].at);
@@ -63,6 +68,8 @@ function Activity({ task, actId, act, employees, canEdit, me }) {
           {act.detail && <p className="mt-0.5 text-xs leading-relaxed text-muted">{act.detail}</p>}
         </div>
         <span className="flex items-center gap-1.5">
+          {aState === 'awaiting' && <Chip color="#0B4E8C">Awaiting approval</Chip>}
+          {aState === 'approved' && <Chip color="#1F8A4C">Approved</Chip>}
           {saving && <span className="font-mono text-[10px] font-normal text-muted animate-pulse">saving…</span>}
           <span className="font-mono text-sm font-semibold tabular-nums"
                 style={{ color: val >= 100 ? '#1F8A4C' : act.blocked ? '#D93025' : '#0A2540' }}>
@@ -114,6 +121,55 @@ function Activity({ task, actId, act, employees, canEdit, me }) {
             </>
           )}
         </div>
+      )}
+
+      {/* Completion validation. Reaching 100% is a claim by whoever did the work;
+          the task owner or an admin has to confirm it before it counts. */}
+      {aState === 'awaiting' && (
+        <div className="mt-2.5 rounded-lg border border-blue/30 bg-blue/[.04] p-3">
+          {!mayValidate ? (
+            <p className="text-xs text-ink">
+              Marked complete — waiting for {employees?.[task.createdBy]?.name || 'the task owner'} to approve it.
+            </p>
+          ) : !sendBack ? (
+            <>
+              <p className="text-xs text-ink">
+                <b>{employees?.[act.updatedBy]?.name || 'Someone'}</b> marked this complete. Approve it, or send it back for more work.
+              </p>
+              <div className="mt-2 flex gap-2">
+                <button className="btn-primary !py-1.5 text-xs" disabled={vBusy}
+                        onClick={async () => { setVBusy(true); try { await approveActivity(task, actId, me); } finally { setVBusy(false); } }}>
+                  {vBusy ? 'Approving…' : 'Approve completion'}
+                </button>
+                <button className="btn-ghost !py-1.5 text-xs" disabled={vBusy} onClick={() => setSendBack(true)}>
+                  Send back
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="space-y-2">
+              <input className="field text-xs" placeholder="What still needs doing? (optional)"
+                     value={note} onChange={(e) => setNote(e.target.value)} />
+              <div className="flex gap-2">
+                <button className="btn-danger !py-1.5 text-xs" disabled={vBusy}
+                        onClick={async () => { setVBusy(true); try { await rejectActivity(task, actId, me, note); setSendBack(false); setNote(''); } finally { setVBusy(false); } }}>
+                  {vBusy ? 'Sending…' : 'Confirm send back'}
+                </button>
+                <button className="btn-ghost !py-1.5 text-xs" onClick={() => { setSendBack(false); setNote(''); }}>Cancel</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+      {aState === 'approved' && act.approvedBy && (
+        <p className="mt-2 text-[11px] text-ok">
+          Approved by {employees?.[act.approvedBy]?.name || act.approvedBy}.
+        </p>
+      )}
+      {act.reworkNote && aState !== 'approved' && (
+        <p className="mt-2 rounded-lg bg-warn/10 px-2.5 py-1.5 text-[11px] text-warn">
+          Sent back: {act.reworkNote}
+        </p>
       )}
 
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5">
@@ -218,6 +274,8 @@ export default function TaskDetail({ task, employees, onClose, isAdmin }) {
   // special rights, and an admin only monitors — unless the admin is themselves
   // an accepted member of this task.
   const canEdit = mine?.state === 'accepted';
+  // The task owner or an admin validates activities marked complete.
+  const mayValidate = canValidate(task, me, isAdmin);
   const trail   = Object.entries(audit || {}).sort((a, b) => b[1].at - a[1].at);
   const exts    = Object.values(task.extensions || {});
 
@@ -333,7 +391,7 @@ export default function TaskDetail({ task, employees, onClose, isAdmin }) {
         <div className="space-y-2.5">
           {acts.length === 0 && <div className="card p-6 text-center text-sm text-muted">No activities on this task yet.</div>}
           {acts.map(([id, a]) => (
-            <Activity key={id} task={task} actId={id} act={a} employees={employees} me={me} canEdit={canEdit} />
+            <Activity key={id} task={task} actId={id} act={a} employees={employees} me={me} canEdit={canEdit} mayValidate={mayValidate} />
           ))}
           {!canEdit && mine?.state !== 'pending' && (
             <p className="text-center text-[11px] text-muted">
@@ -617,7 +675,7 @@ function ManagerApprovalPanel({ task, me, employees }) {
   const approve = async (empId) => {
     setErr(''); setBusyId(empId);
     try {
-      await approveAssignment(task.id, empId);
+      await approveAssignment(task.id, empId, { taskTitle: task.title });
       setDone(`${employees?.[empId]?.name || 'The assignment'} approved — it has been sent on for their acceptance.`);
     } catch (e) {
       setErr(errorText(e));

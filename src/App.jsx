@@ -9,10 +9,11 @@ import TaskForm from './pages/TaskForm';
 import Templates from './pages/Templates';
 import { Avatar, Modal, Field } from './components/ui';
 import { LogoMark } from './components/Logo';
+import NotificationBell from './components/NotificationBell';
 import { httpsCallable } from 'firebase/functions';
 import { fns } from './lib/firebase';
 
-function Header({ me, role, onLogout, onProfile }) {
+function Header({ me, role, onLogout, onProfile, onOpenTask }) {
   return (
     <header className="sticky top-0 z-30 border-b border-line bg-white/85 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3">
@@ -25,7 +26,10 @@ function Header({ me, role, onLogout, onProfile }) {
             Employees Task Tracker
           </p>
         </div>
-        <button className="ml-auto flex items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-sky" onClick={onProfile}>
+        <div className="ml-auto flex items-center gap-1">
+          <NotificationBell me={me} onOpenTask={onOpenTask} />
+        </div>
+        <button className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-sky" onClick={onProfile}>
           <span className="hidden text-right sm:block">
             <span className="block text-xs font-medium leading-tight">{me.name}</span>
             <span className="block font-mono text-[10px] text-muted">
@@ -92,7 +96,7 @@ export default function App() {
 
   return (
     <div className="min-h-dvh">
-      <Header me={me} role={role} onLogout={logout} onProfile={() => setProf(true)} />
+      <Header me={me} role={role} onLogout={logout} onProfile={() => setProf(true)} onOpenTask={(id) => { setView("tasks"); setOpen(id); }} />
 
       <main className="mx-auto max-w-6xl px-4 py-5">
         {open && live ? (
