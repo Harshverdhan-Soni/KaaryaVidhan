@@ -159,6 +159,25 @@ export function initialMemberState(assigner, assignee) {
   return { state: 'pending', at: now };
 }
 
+/**
+ * A broken reporting link: the employee names a Reporting Authority, but that
+ * name never resolved to a real account at import, so `managerId` is empty.
+ * initialMemberState treats such a person as managerless, which means an admin
+ * assignment reaches them straight away — the manager-approval gate is silently
+ * skipped. Someone with no reportingTo at all (a top-level admin/manager) is NOT
+ * flagged; only a named-but-unresolved authority is a problem.
+ */
+export function hasUnresolvedManager(emp) {
+  return !emp?.managerId && !!String(emp?.reportingTo || '').trim();
+}
+
+/** Every employee whose Reporting Authority failed to resolve, by name. */
+export function unresolvedReports(employees) {
+  return Object.values(employees || {})
+    .filter(hasUnresolvedManager)
+    .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+}
+
 /** Member states that mean "not yet actionable by the employee". */
 export const PRE_EMPLOYEE = new Set(['awaiting_manager']);
 

@@ -6,6 +6,7 @@ import { Avatar, Chip, Modal, Field, Empty, AsyncButton, DangerConfirm } from '.
 import { parseEmployeeWorkbook, linkManagers, downloadTemplate, exportRows } from '../lib/excel';
 import { updateEmployee } from '../lib/db';
 import { colorFor } from '../lib/colors';
+import { unresolvedReports } from '../lib/progress';
 
 export default function Employees({ employees }) {
   const { me } = useAuthed();
@@ -19,6 +20,10 @@ export default function Employees({ employees }) {
   const [resetOpen, setResetOpen] = useState(false);
 
   const all = Object.values(employees || {});
+  // Reporting links that never resolved to a real account: these people are
+  // treated as managerless, so admin assignments bypass the manager-approval
+  // gate. Flag them across the whole org, not just the current filter view.
+  const unresolved = useMemo(() => unresolvedReports(employees), [employees]);
   const depts = useMemo(() => [...new Set(all.map((e) => e.department).filter(Boolean))].sort(), [employees]);
   const list = all
     .filter((e) => dept === 'all' || e.department === dept)
@@ -56,6 +61,43 @@ export default function Employees({ employees }) {
           <button className="btn-primary text-xs" onClick={() => setImp(true)}>Import from Excel</button>
         </span>
       </div>
+
+      {me.role === 'admin' && unresolved.length > 0 && (
+        <div className="rounded-xl border border-warn/40 bg-warn/10 p-3.5">
+          <div className="flex items-start gap-2.5">
+            <svg className="mt-0.5 h-4 w-4 flex-shrink-0 text-warn" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+              <line x1="12" y1="9" x2="12" y2="13" />
+              <line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-warn">
+                {unresolved.length} {unresolved.length === 1 ? 'employee has' : 'employees have'} an
+                unresolved reporting authority
+              </p>
+              <p className="mt-0.5 text-[11px] leading-relaxed text-muted">
+                Their Reporting Authority name never matched a real account, so they count as managerless —
+                admin assignments reach them <b>without any manager approval</b>. Fix each by picking a
+                reporting authority from the directory.
+              </p>
+              <div className="mt-2.5 flex flex-wrap gap-1.5">
+                {unresolved.map((e) => (
+                  <button key={e.empId} onClick={() => setEditEmp(e)}
+                          className="group inline-flex items-center gap-1.5 rounded-lg border border-warn/40 bg-white px-2.5 py-1 text-[11px] hover:border-warn hover:bg-warn/10"
+                          title={`Reporting Authority “${e.reportingTo}” did not resolve — click to fix`}>
+                    <span className="font-medium">{e.name}</span>
+                    <span className="font-mono text-muted">{e.empId}</span>
+                    <span className="text-muted">→</span>
+                    <span className="max-w-[10rem] truncate italic text-warn">{e.reportingTo}</span>
+                    <span className="font-medium text-blue group-hover:text-ink">Fix</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <p className="font-mono text-[11px] text-muted">{list.length} of {all.length} employees</p>
@@ -133,10 +175,17 @@ function EditEmployeeModal({ emp, onClose, me, depts, employees }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr]   = useState('');
 
-  // Seed local state when a new employee is opened.
+  // Seed local state when a new employee is opened. The modal stays mounted
+  // between opens, so busy/err must be cleared here too — otherwise a previous
+  // successful save (which closes without resetting busy) leaves the next
+  // employee's button stuck on "Saving…".
   useMemo(() => {
-    if (emp) setF({ name: emp.name || '', designation: emp.designation || '',
-                    department: emp.department || '', reportingTo: emp.reportingTo || '' });
+    if (emp) {
+      setF({ name: emp.name || '', designation: emp.designation || '',
+             department: emp.department || '', reportingTo: emp.reportingTo || '' });
+      setBusy(false);
+      setErr('');
+    }
   }, [emp]);
 
   // Everyone except this person — nobody reports to themselves.
