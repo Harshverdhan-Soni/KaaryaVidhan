@@ -27,9 +27,13 @@ export default function TaskForm({ open, onClose, employees, me, role, prefill, 
   const [busy, setBusy]   = useState(false);
   const [err, setErr]     = useState('');
 
-  // Recording an already-completed task (Phase 1: admins and managers only).
+  // Task status being recorded: a fresh task, work already underway (with a past
+  // start date), or historical completed work. "Completed" is admin/manager only
+  // (Phase 1); "New" and "Ongoing" are open to everyone.
   const canRecordCompleted = role === 'admin' || role === 'manager';
-  const [completed, setCompleted] = useState(false);
+  const [mode, setMode]     = useState('new');   // 'new' | 'ongoing' | 'completed'
+  const completed = mode === 'completed';
+  const ongoing   = mode === 'ongoing';
   const [startD, setStartD] = useState('');
   const [compD, setCompD]   = useState('');
   // Per-activity contributors, kept parallel to `acts`: contribs[i] is the list
@@ -141,12 +145,14 @@ export default function TaskForm({ open, onClose, employees, me, role, prefill, 
   const completedValid = title.trim() && startD && date && compD && builtActs.length > 0 &&
     builtActs.every((a) => a.contribs.length > 0 && Math.abs(a.contribs.reduce((s, c) => s + c.pct, 0) - 100) <= 0.5);
 
-  const valid = completed ? completedValid : (title.trim() && date && clean.length && sel.length);
+  const valid = completed ? completedValid
+    : ongoing ? (title.trim() && startD && date && clean.length && sel.length)
+    : (title.trim() && date && clean.length && sel.length);
 
   const resetForm = () => {
     setTitle(''); setDesc(''); setDate(''); setActs(['']); setContribs([[]]);
     setSel(origin === 'self' ? [me.empId] : []); setGroupId('');
-    setStartD(''); setCompD(''); setCompleted(false); setErr('');
+    setStartD(''); setCompD(''); setMode('new'); setErr('');
   };
 
   const submit = async () => {
@@ -176,7 +182,9 @@ export default function TaskForm({ open, onClose, employees, me, role, prefill, 
         });
         id = await createTask({
           title: title.trim(), description: desc.trim(), department: dept || me.department || '',
-          origin, startDate: Date.now(), deadline: new Date(date).setHours(23, 59, 59),
+          origin,
+          startDate: ongoing ? new Date(startD).setHours(0, 0, 0, 0) : Date.now(),
+          deadline: new Date(date).setHours(23, 59, 59),
           status: 'active', activities, members, groupId: groupId || null
         }, me);
       }
@@ -192,6 +200,7 @@ export default function TaskForm({ open, onClose, employees, me, role, prefill, 
   return (
     <Modal open={open} onClose={onClose} wide
            title={completed ? 'Record a completed task'
+                  : ongoing ? 'Add an ongoing task'
                   : prefill ? `From template: ${prefill.title}`
                   : origin === 'self' ? 'Add a task' : 'Create and assign a task'}>
       <div className="space-y-4">
@@ -203,19 +212,20 @@ export default function TaskForm({ open, onClose, employees, me, role, prefill, 
           <textarea className="field" rows="2" value={desc} onChange={(e) => setDesc(e.target.value)} />
         </Field>
 
-        {canRecordCompleted && (
-          <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-line bg-sky/50 px-3 py-2.5">
-            <input type="checkbox" className="mt-0.5 accent-blue" checked={completed}
-                   onChange={(e) => setCompleted(e.target.checked)} />
-            <span className="text-sm">
-              <span className="font-medium">This task is already completed</span>
-              <span className="mt-0.5 block text-[11px] leading-relaxed text-muted">
-                Record past work for the history: set the dates and who contributed to each activity. It's saved
-                as completed with every activity at 100% — no approval needed.
-              </span>
-            </span>
-          </label>
-        )}
+        <div>
+          <p className="eyebrow mb-1.5">Task status</p>
+          <div className="inline-flex flex-wrap gap-1 rounded-xl bg-blue/[.07] p-1">
+            {[['new', 'New task'], ['ongoing', 'Ongoing'],
+              ...(canRecordCompleted ? [['completed', 'Completed']] : [])].map(([v, l]) => (
+              <button key={v} type="button" className={`tab ${mode === v ? 'tab-on' : ''}`} onClick={() => setMode(v)}>{l}</button>
+            ))}
+          </div>
+          <p className="mt-1.5 text-[11px] leading-relaxed text-muted">
+            {mode === 'new' && 'A new task starting today.'}
+            {mode === 'ongoing' && 'Work already underway — set the date it actually started so the pace reflects real elapsed time.'}
+            {mode === 'completed' && 'Record past work for the history: set the dates and who contributed to each activity. Saved as completed with every activity at 100% — no approval needed.'}
+          </p>
+        </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Department">
@@ -223,13 +233,26 @@ export default function TaskForm({ open, onClose, employees, me, role, prefill, 
                    placeholder="AI & Quantum Computing" />
             <datalist id="depts">{depts.map((d) => <option key={d} value={d} />)}</datalist>
           </Field>
-          {!completed && (
+          {mode === 'new' && (
             <Field label="Deadline" hint="Progress is paced against today ÷ this date.">
               <input type="date" className="field font-mono" value={date} min={toDateInput(Date.now())}
                      onChange={(e) => setDate(e.target.value)} />
             </Field>
           )}
         </div>
+
+        {ongoing && (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Started on" hint="When work actually began — can be earlier than today.">
+              <input type="date" className="field font-mono" value={startD} max={toDateInput(Date.now())}
+                     onChange={(e) => setStartD(e.target.value)} />
+            </Field>
+            <Field label="Deadline" hint="Progress is paced from the start date to this date.">
+              <input type="date" className="field font-mono" value={date}
+                     onChange={(e) => setDate(e.target.value)} />
+            </Field>
+          </div>
+        )}
 
         {completed && (
           <div className="grid gap-4 sm:grid-cols-3">
@@ -379,7 +402,9 @@ export default function TaskForm({ open, onClose, employees, me, role, prefill, 
             ? (completed ? 'Recording…' : 'Creating…')
             : completed
               ? 'Record completed task'
-              : `Create task with ${clean.length} ${clean.length === 1 ? 'activity' : 'activities'}`}
+              : ongoing
+                ? 'Create ongoing task'
+                : `Create task with ${clean.length} ${clean.length === 1 ? 'activity' : 'activities'}`}
         </button>
       </div>
     </Modal>
