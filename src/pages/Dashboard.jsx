@@ -1,11 +1,65 @@
 import { useState, useMemo } from 'react';
 import { useDb } from '../lib/useDb';
 import TaskCard from '../components/TaskCard';
-import { Empty, Tabs, Chip, AsyncButton, DangerConfirm } from '../components/ui';
+import { Empty, Tabs, Chip, AsyncButton, DangerConfirm, Modal } from '../components/ui';
 import { httpsCallable } from 'firebase/functions';
 import { fns } from '../lib/firebase';
 import { statusOf, NEEDS_ATTENTION, fmtDate, livePendingApprovals, visibleGroups, GROUP_KINDS } from '../lib/progress';
+import { deleteGroup } from '../lib/db';
 import { exportRows } from '../lib/excel';
+
+/** Manage the groups you created: delete one only when no task uses it. */
+function GroupsModal({ open, onClose, me, groupsRaw, tasks }) {
+  const mine = useMemo(() => Object.values(groupsRaw || {})
+    .filter((g) => g.createdBy === me.empId)
+    .sort((a, b) => (a.kind || 'functional').localeCompare(b.kind || 'functional') || (a.name || '').localeCompare(b.name || '')),
+    [groupsRaw, me.empId]);
+  const [busy, setBusy] = useState('');
+  const usage = (gid) => tasks.filter((t) => t.groupId === gid).length;
+
+  const del = async (g) => {
+    setBusy(g.id);
+    try { await deleteGroup(g.id); } catch (e) { console.warn('group delete failed', e); }
+    finally { setBusy(''); }
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title="Manage groups">
+      <div className="space-y-3">
+        <p className="text-xs text-muted">
+          Groups you created. A group can be deleted only when no task uses it — in any state, open or completed.
+        </p>
+        {mine.length === 0 ? (
+          <Empty title="You haven't created any groups yet." />
+        ) : (
+          <div className="divide-y divide-line rounded-lg border border-line">
+            {mine.map((g) => {
+              const n = usage(g.id);
+              return (
+                <div key={g.id} className="flex items-center gap-3 px-3 py-2.5">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{g.name}</p>
+                    <p className="font-mono text-[11px] text-muted">
+                      {g.kind === 'project' ? 'Project' : 'Functional area'}{g.scope === 'org' ? ' · org-wide' : ' · your team'}
+                    </p>
+                  </div>
+                  {n > 0 ? (
+                    <span className="shrink-0 font-mono text-[11px] text-muted">In use by {n} {n === 1 ? 'task' : 'tasks'}</span>
+                  ) : (
+                    <button className="btn-ghost shrink-0 !px-2.5 text-[11px] text-bad hover:bg-bad/10"
+                            disabled={busy === g.id} onClick={() => del(g)}>
+                      {busy === g.id ? 'Deleting…' : 'Delete'}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
 
 /** Small stat strip. Numbers only — the Pace Bar does the storytelling. */
 function Stats({ tasks }) {
@@ -75,6 +129,7 @@ export default function Dashboard({ role, me, employees, onOpen }) {
   const [dept, setDept] = useState('all');
   const [state, setState] = useState('open');
   const [group, setGroup] = useState('all');
+  const [groupsOpen, setGroupsOpen] = useState(false);
 
   const tasks = useMemo(() => Object.values(tasksRaw || {}), [tasksRaw]);
   const groups = useMemo(() => visibleGroups(groupsRaw, me, role), [groupsRaw, me, role]);
@@ -167,6 +222,9 @@ export default function Dashboard({ role, me, employees, onOpen }) {
               {depts.map((d) => <option key={d} value={d}>{d}</option>)}
             </select>
           )}
+          {(role === 'admin' || role === 'manager') && (
+            <button className="btn-ghost text-xs" onClick={() => setGroupsOpen(true)}>Manage groups</button>
+          )}
           {role === 'admin' && shown.length > 0 && (
             <AsyncButton className="btn-ghost text-xs" onClick={() => exportRows(shown, [
               ['Task', (t) => t.title], ['Department', (t) => t.department],
@@ -219,6 +277,8 @@ export default function Dashboard({ role, me, employees, onOpen }) {
         body={`This permanently removes ${selT.length === 1 ? 'the task' : 'these tasks'} and all their history — progress, remarks and audit trail. This cannot be undone.`}
         phrase="DELETE" confirmLabel={`Delete ${selT.length}`}
         onConfirm={async (pin) => { await httpsCallable(fns, 'deleteTasks')({ taskIds: selT, pin }); setSelT([]); setSelMode(false); }} />
+
+      <GroupsModal open={groupsOpen} onClose={() => setGroupsOpen(false)} me={me} groupsRaw={groupsRaw} tasks={tasks} />
     </div>
   );
 }

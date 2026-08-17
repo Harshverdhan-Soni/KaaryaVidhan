@@ -2,7 +2,7 @@ import { useState, useMemo, useRef, useEffect } from 'react';
 import { useAuthed } from '../lib/auth';
 import { useDb } from '../lib/useDb';
 import { Modal, Field, Empty, AsyncButton, Chip } from '../components/ui';
-import { saveTemplate, deleteTemplate } from '../lib/db';
+import { saveTemplate, deleteTemplate, createGroup } from '../lib/db';
 import { parseTemplateWorkbook, downloadTemplateWorkbook } from '../lib/excel';
 import { visibleGroups } from '../lib/progress';
 
@@ -15,8 +15,8 @@ export default function Templates({ onUse }) {
   const { me, role } = useAuthed();
   const raw = useDb(`templates/${me.empId}`);
   const groupsRaw = useDb('groups');
-  const groupNames = useMemo(
-    () => [...new Set(visibleGroups(groupsRaw, me, role).map((g) => g.name))], [groupsRaw, me, role]);
+  const visGroups = useMemo(() => visibleGroups(groupsRaw, me, role), [groupsRaw, me, role]);
+  const groupNames = useMemo(() => [...new Set(visGroups.map((g) => g.name))], [visGroups]);
   const [q, setQ]         = useState('');
   const [fType, setFType] = useState('all');   // all | functional | project
   const [fName, setFName] = useState('all');   // all | __none__ | <group name>
@@ -103,7 +103,7 @@ export default function Templates({ onUse }) {
 
       <BuildModal open={!!builder} onClose={() => setBuilder(null)} me={me} groupNames={groupNames}
                   mode={builder?.mode || 'new'} template={builder?.template || null} />
-      <ImportModal open={imp} onClose={() => setImp(false)} me={me} />
+      <ImportModal open={imp} onClose={() => setImp(false)} me={me} role={role} groups={visGroups} />
     </div>
   );
 }
@@ -199,7 +199,7 @@ function BuildModal({ open, onClose, me, groupNames = [], mode = 'new', template
 
 /* ------------------------------ import Excel ------------------------------ */
 
-function ImportModal({ open, onClose, me }) {
+function ImportModal({ open, onClose, me, role, groups = [] }) {
   const [stage, setStage] = useState('pick');   // pick → review → done
   const [res, setRes]     = useState(null);
   const [out, setOut]     = useState(0);
@@ -218,6 +218,23 @@ function ImportModal({ open, onClose, me }) {
 
   const commit = async () => {
     setStage('working');
+    // Auto-create any groups named in the sheet that don't already exist, so an
+    // Excel import needs no manual "Create" step. Deduped by name + kind against
+    // the groups this person can already see (admins/managers only reach here).
+    if (role === 'admin' || role === 'manager') {
+      const wanted = new Map();
+      for (const t of res.rows) {
+        const name = (t.groupName || '').trim();
+        if (!name) continue;
+        const kind = t.groupKind === 'project' ? 'project' : 'functional';
+        wanted.set(`${name.toLowerCase()}|${kind}`, { name, kind });
+      }
+      for (const g of wanted.values()) {
+        const exists = groups.some((x) =>
+          (x.name || '').trim().toLowerCase() === g.name.toLowerCase() && (x.kind || 'functional') === g.kind);
+        if (!exists) { try { await createGroup(g, me, role); } catch (e) { console.warn('group auto-create failed', e); } }
+      }
+    }
     for (const t of res.rows) await saveTemplate(me.empId, t);
     setOut(res.rows.length); setStage('done');
   };
@@ -230,7 +247,8 @@ function ImportModal({ open, onClose, me }) {
             Upload a workbook of templates. One row per template, with a Task Name, an optional
             Description, an optional Group Type (Functional or Project) and Group Name, and activities —
             either in a single Activities cell (separated by <b>|</b> or <b> ;</b>) or across columns
-            named Activity 1, Activity 2, and so on.
+            named Activity 1, Activity 2, and so on. Any Group Name that doesn't exist yet is created
+            automatically on import.
           </p>
           <div className="rounded-xl border-2 border-dashed border-line p-8 text-center">
             <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"

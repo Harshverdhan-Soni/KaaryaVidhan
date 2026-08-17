@@ -98,7 +98,7 @@
     "groups": {
       ".read": "auth != null",
       "$groupId": {
-        ".write": "auth.token.role === 'admin' || (auth.token.role === 'manager' && newData.child('createdBy').val() === auth.uid && newData.child('scope').val() === 'team' && (!data.exists() || data.child('createdBy').val() === auth.uid))",
+        ".write": "auth.token.role === 'admin' || (auth.token.role === 'manager' && ((newData.exists() && newData.child('createdBy').val() === auth.uid && newData.child('scope').val() === 'team' && (!data.exists() || data.child('createdBy').val() === auth.uid)) || (!newData.exists() && data.child('createdBy').val() === auth.uid)))",
         ".validate": "newData.hasChildren(['name','createdBy','scope','at'])"
       }
     },

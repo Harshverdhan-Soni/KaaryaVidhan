@@ -197,6 +197,7 @@ export async function updateTaskFields(taskId, fields, me) {
     description: (fields.description || '').trim(),
     department: (fields.department || '').trim()
   };
+  if (fields.startDate) patch.startDate = fields.startDate;
   if (fields.deadline) patch.deadline = fields.deadline;
   // Only touch the group when the caller passed one (undefined = leave as-is);
   // an empty string clears it.
@@ -241,6 +242,12 @@ export async function createGroup({ name, kind }, me, role) {
   };
   await set(ref(db, `groups/${id}`), group);
   return group;
+}
+
+/** Delete a group. The caller must own it (enforced by the /groups rule), and
+ *  the UI only offers this when no task references the group. */
+export async function deleteGroup(groupId) {
+  await set(ref(db, `groups/${groupId}`), null);
 }
 
 /* -------------------------- task templates (private) ---------------------- */

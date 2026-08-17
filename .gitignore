@@ -4,3 +4,9 @@ dist
 .firebase
 functions/node_modules
 *.log
+
+# Local database backups (contain PIN hashes + staff data — never commit)
+backups/
+# Firebase service-account keys, if you ever add one
+*serviceAccount*.json
+*firebase-adminsdk*.json

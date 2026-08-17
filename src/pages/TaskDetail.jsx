@@ -605,15 +605,20 @@ function EditTaskModal({ open, onClose, task, me, employees, role, groups = [] }
   const [title, setTitle] = useState(task.title || '');
   const [desc, setDesc]   = useState(task.description || '');
   const [dept, setDept]   = useState(task.department || '');
+  const [start, setStart] = useState(toDateInput(task.startDate));
   const [date, setDate]   = useState(toDateInput(task.deadline));
   const [groupId, setGroupId] = useState(task.groupId || '');
   const [busy, setBusy]   = useState(false);
 
   useMemo(() => {
     if (open) { setTitle(task.title || ''); setDesc(task.description || '');
-                setDept(task.department || ''); setDate(toDateInput(task.deadline));
-                setGroupId(task.groupId || ''); }
+                setDept(task.department || ''); setStart(toDateInput(task.startDate));
+                setDate(toDateInput(task.deadline)); setGroupId(task.groupId || ''); }
   }, [open, task]);
+
+  const startMs = start ? new Date(start).setHours(0, 0, 0, 0) : task.startDate;
+  const deadMs  = date ? new Date(date).setHours(23, 59, 59) : task.deadline;
+  const datesOk = !(startMs && deadMs) || startMs <= deadMs;
 
   // Keep an assigned-but-unseen group selectable so saving doesn't silently drop
   // it — e.g. a task tagged with another manager's team group.
@@ -627,6 +632,7 @@ function EditTaskModal({ open, onClose, task, me, employees, role, groups = [] }
     setBusy(true);
     await updateTaskFields(task.id, {
       title, description: desc, department: dept,
+      startDate: start ? new Date(start).setHours(0, 0, 0, 0) : task.startDate,
       deadline: date ? new Date(date).setHours(23, 59, 59) : task.deadline,
       groupId
     }, me);
@@ -646,16 +652,23 @@ function EditTaskModal({ open, onClose, task, me, employees, role, groups = [] }
         <Field label="Description">
           <textarea className="field" rows="2" value={desc} onChange={(e) => setDesc(e.target.value)} />
         </Field>
+        <Field label="Department">
+          <input className="field" list="edit-task-depts" value={dept} onChange={(e) => setDept(e.target.value)} />
+          <datalist id="edit-task-depts">{depts.map((d) => <option key={d} value={d} />)}</datalist>
+        </Field>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Department">
-            <input className="field" list="edit-task-depts" value={dept} onChange={(e) => setDept(e.target.value)} />
-            <datalist id="edit-task-depts">{depts.map((d) => <option key={d} value={d} />)}</datalist>
+          <Field label="Start date" hint="Pace runs from here to the deadline.">
+            <input type="date" className="field font-mono" value={start} max={date || undefined}
+                   onChange={(e) => setStart(e.target.value)} />
           </Field>
-          <Field label="Deadline" hint="Changing this re-paces the task against today.">
-            <input type="date" className="field font-mono" value={date} min={toDateInput(Date.now())}
+          <Field label="Deadline" hint="Changing either date re-paces the task.">
+            <input type="date" className="field font-mono" value={date} min={start || undefined}
                    onChange={(e) => setDate(e.target.value)} />
           </Field>
         </div>
+        {!datesOk && (
+          <p className="rounded-lg bg-bad/10 px-3 py-2 text-xs text-bad">The start date must be on or before the deadline.</p>
+        )}
         <Field label="Group">
           <select className="field" value={groupId} onChange={(e) => setGroupId(e.target.value)}>
             <option value="">— No group —</option>
@@ -670,7 +683,7 @@ function EditTaskModal({ open, onClose, task, me, employees, role, groups = [] }
             })}
           </select>
         </Field>
-        <button className="btn-primary w-full" disabled={!title.trim() || busy} onClick={save}>
+        <button className="btn-primary w-full" disabled={!title.trim() || !datesOk || busy} onClick={save}>
           {busy ? 'Saving…' : 'Save changes'}
         </button>
       </div>
