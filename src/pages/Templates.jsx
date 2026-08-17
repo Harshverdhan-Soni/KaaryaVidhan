@@ -11,7 +11,7 @@ import { visibleGroups } from '../lib/progress';
  * description and a list of activities. Picking one opens the normal
  * create-and-assign form pre-filled, leaving department/deadline/people blank.
  */
-export default function Templates({ onUse }) {
+export default function Templates({ onUse, layout = 'cards', onLayout }) {
   const { me, role } = useAuthed();
   const raw = useDb(`templates/${me.empId}`);
   const groupsRaw = useDb('groups');
@@ -22,9 +22,8 @@ export default function Templates({ onUse }) {
   const [fName, setFName] = useState('all');   // all | __none__ | <group name>
   const [builder, setBuilder] = useState(null); // { mode:'new'|'edit'|'copy', template } | null
   const [imp, setImp]     = useState(false);
-  const [view, setView]   = useState('cards');   // 'cards' | 'list'
   const [page, setPage]   = useState(0);
-  const pageSize = view === 'list' ? 20 : 12;
+  const pageSize = layout === 'list' ? 20 : 12;
 
   const all = useMemo(() => Object.values(raw || {}), [raw]);
   // Group names actually used across this person's templates, for the filter.
@@ -38,7 +37,7 @@ export default function Templates({ onUse }) {
     .sort((a, b) => b.createdAt - a.createdAt),
     [all, q, fType, fName]);
 
-  useEffect(() => { setPage(0); }, [q, fType, fName, view]);
+  useEffect(() => { setPage(0); }, [q, fType, fName, layout]);
   const pageCount = Math.max(1, Math.ceil(list.length / pageSize));
   const safePage = Math.min(page, pageCount - 1);
   const pageItems = list.slice(safePage * pageSize, safePage * pageSize + pageSize);
@@ -58,7 +57,7 @@ export default function Templates({ onUse }) {
           {usedGroupNames.map((n) => <option key={n} value={n}>{n}</option>)}
         </select>
         <span className="ml-auto flex flex-wrap items-center gap-2">
-          <ViewToggle value={view} onChange={setView} />
+          <ViewToggle value={layout} onChange={onLayout} />
           <button className="btn-ghost text-xs" onClick={() => setImp(true)}>Import from Excel</button>
           <button className="btn-primary text-xs" onClick={() => setBuilder({ mode: 'new', template: null })}>+ New template</button>
         </span>
@@ -78,7 +77,7 @@ export default function Templates({ onUse }) {
         <Empty title="No templates match these filters."
                action={<button className="btn-ghost text-xs"
                         onClick={() => { setQ(''); setFType('all'); setFName('all'); }}>Clear filters</button>} />
-      ) : view === 'list' ? (
+      ) : layout === 'list' ? (
         <>
           <div className="card overflow-x-auto p-0">
             <table className="w-full min-w-[560px] text-left text-xs">

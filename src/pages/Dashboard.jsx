@@ -134,7 +134,7 @@ function AttentionRail({ tasks, onOpen }) {
   );
 }
 
-export default function Dashboard({ role, me, employees, onOpen }) {
+export default function Dashboard({ role, me, employees, onOpen, layout = 'cards', onLayout }) {
   const tasksRaw   = useDb('tasks');
   const allUpdates = useDb('updates');
   const groupsRaw  = useDb('groups');
@@ -147,9 +147,8 @@ export default function Dashboard({ role, me, employees, onOpen }) {
   const [group, setGroup] = useState('all');
   const [cat, setCat] = useState('all');   // stat-tile category, or 'all'
   const [groupsOpen, setGroupsOpen] = useState(false);
-  const [view, setView] = useState('cards');   // 'cards' | 'list'
   const [page, setPage] = useState(0);
-  const pageSize = view === 'list' ? 20 : 12;
+  const pageSize = layout === 'list' ? 20 : 12;
 
   const tasks = useMemo(() => Object.values(tasksRaw || {}), [tasksRaw]);
   const groups = useMemo(() => visibleGroups(groupsRaw, me, role), [groupsRaw, me, role]);
@@ -204,7 +203,7 @@ export default function Dashboard({ role, me, employees, onOpen }) {
     });
 
   // Back to page one whenever the filter set or the view changes.
-  useEffect(() => { setPage(0); }, [tab, dept, group, state, cat, view]);
+  useEffect(() => { setPage(0); }, [tab, dept, group, state, cat, layout]);
   const pageCount = Math.max(1, Math.ceil(shown.length / pageSize));
   const safePage = Math.min(page, pageCount - 1);
   const pageItems = shown.slice(safePage * pageSize, safePage * pageSize + pageSize);
@@ -230,7 +229,7 @@ export default function Dashboard({ role, me, employees, onOpen }) {
       <div className="flex flex-wrap items-center gap-2">
         <Tabs value={tab} onChange={(v) => { setTab(v); setCat('all'); }} options={tabs} />
         <span className="ml-auto flex flex-wrap items-center gap-2">
-          <ViewToggle value={view} onChange={setView} />
+          <ViewToggle value={layout} onChange={onLayout} />
           <select className="field !w-auto !py-2 text-xs" value={state}
                   onChange={(e) => { setState(e.target.value); setCat('all'); }}>
             <option value="open">Open</option>
@@ -287,7 +286,7 @@ export default function Dashboard({ role, me, employees, onOpen }) {
           : 'No tasks in this view. Create one to get started.'} />
       ) : (
         <>
-          {view === 'list' ? (
+          {layout === 'list' ? (
             <TaskTable tasks={pageItems} updates={allUpdates} employees={employees}
                        groupsRaw={groupsRaw} showOwner={role !== 'employee'} onOpen={onOpen} />
           ) : (

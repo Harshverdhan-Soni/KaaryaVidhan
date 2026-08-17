@@ -83,6 +83,7 @@ export default function App() {
   const { me, role, loading, logout } = useAuthed();
   const employees = useDb('employees', !!me);
   const [view, setView]     = useState('tasks');
+  const [layout, setLayout] = useState('cards');   // cards | list — shared across Tasks & Templates
   const [open, setOpen]     = useState(null);   // open task id
   const [form, setForm]     = useState(false);
   const [prefill, setPrefill] = useState(null);
@@ -125,14 +126,14 @@ export default function App() {
             {view === 'people' && isAdmin
               ? <Employees employees={employees} />
               : view === 'templates' && (isAdmin || role === 'manager')
-                ? <Templates onUse={(t) => { setPrefill(t); setView('tasks'); setForm(true); }} />
-                : <Dashboard role={role} me={me} employees={employees} onOpen={(t) => setOpen(t.id)} />}
+                ? <Templates onUse={(t) => { setPrefill(t); setForm(true); }} layout={layout} onLayout={setLayout} />
+                : <Dashboard role={role} me={me} employees={employees} onOpen={(t) => setOpen(t.id)} layout={layout} onLayout={setLayout} />}
           </>
         )}
       </main>
 
       <TaskForm open={form} onClose={() => { setForm(false); setPrefill(null); }} employees={employees} me={me}
-                role={role} prefill={prefill} onCreated={(id) => setOpen(id)} />
+                role={role} prefill={prefill} onCreated={(id) => { setView('tasks'); setOpen(id); }} />
       <ProfileModal open={prof} onClose={() => setProf(false)} me={me} role={role} />
 
       <footer className="mx-auto max-w-6xl px-4 pb-8 pt-4">
