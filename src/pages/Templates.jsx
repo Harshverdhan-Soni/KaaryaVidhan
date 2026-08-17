@@ -1,7 +1,7 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { useAuthed } from '../lib/auth';
 import { useDb } from '../lib/useDb';
-import { Modal, Field, Empty, AsyncButton, Chip } from '../components/ui';
+import { Modal, Field, Empty, AsyncButton, Chip, ViewToggle, Pager } from '../components/ui';
 import { saveTemplate, deleteTemplate, createGroup } from '../lib/db';
 import { parseTemplateWorkbook, downloadTemplateWorkbook } from '../lib/excel';
 import { visibleGroups } from '../lib/progress';
@@ -22,6 +22,9 @@ export default function Templates({ onUse }) {
   const [fName, setFName] = useState('all');   // all | __none__ | <group name>
   const [builder, setBuilder] = useState(null); // { mode:'new'|'edit'|'copy', template } | null
   const [imp, setImp]     = useState(false);
+  const [view, setView]   = useState('cards');   // 'cards' | 'list'
+  const [page, setPage]   = useState(0);
+  const pageSize = view === 'list' ? 20 : 12;
 
   const all = useMemo(() => Object.values(raw || {}), [raw]);
   // Group names actually used across this person's templates, for the filter.
@@ -34,6 +37,11 @@ export default function Templates({ onUse }) {
     .filter((t) => !q || `${t.title} ${t.description || ''} ${t.groupName || ''}`.toLowerCase().includes(q.toLowerCase()))
     .sort((a, b) => b.createdAt - a.createdAt),
     [all, q, fType, fName]);
+
+  useEffect(() => { setPage(0); }, [q, fType, fName, view]);
+  const pageCount = Math.max(1, Math.ceil(list.length / pageSize));
+  const safePage = Math.min(page, pageCount - 1);
+  const pageItems = list.slice(safePage * pageSize, safePage * pageSize + pageSize);
 
   return (
     <div className="space-y-4">
@@ -49,7 +57,8 @@ export default function Templates({ onUse }) {
           <option value="__none__">No group</option>
           {usedGroupNames.map((n) => <option key={n} value={n}>{n}</option>)}
         </select>
-        <span className="ml-auto flex gap-2">
+        <span className="ml-auto flex flex-wrap items-center gap-2">
+          <ViewToggle value={view} onChange={setView} />
           <button className="btn-ghost text-xs" onClick={() => setImp(true)}>Import from Excel</button>
           <button className="btn-primary text-xs" onClick={() => setBuilder({ mode: 'new', template: null })}>+ New template</button>
         </span>
@@ -69,9 +78,48 @@ export default function Templates({ onUse }) {
         <Empty title="No templates match these filters."
                action={<button className="btn-ghost text-xs"
                         onClick={() => { setQ(''); setFType('all'); setFName('all'); }}>Clear filters</button>} />
+      ) : view === 'list' ? (
+        <>
+          <div className="card overflow-x-auto p-0">
+            <table className="w-full min-w-[560px] text-left text-xs">
+              <thead className="border-b border-line bg-sky/60">
+                <tr>
+                  {['Template', 'Group', 'Activities', ''].map((c, i) => (
+                    <th key={i} className="whitespace-nowrap px-3 py-2 font-mono uppercase tracking-wider text-[10px] text-muted">{c}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {pageItems.map((t) => (
+                  <tr key={t.id} className="align-top hover:bg-sky/40">
+                    <td className="px-3 py-2.5">
+                      <p className="max-w-[16rem] truncate font-medium">{t.title}</p>
+                      {t.description && <p className="max-w-[18rem] truncate text-[11px] text-muted">{t.description}</p>}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      {t.groupName ? <Chip color="#0B4E8C">{t.groupName}{t.groupKind === 'project' ? ' · Project' : ''}</Chip> : <span className="text-muted">—</span>}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2.5 font-mono text-[11px] text-muted">{t.activities.length}</td>
+                    <td className="px-3 py-2.5">
+                      <div className="flex items-center justify-end gap-2.5 whitespace-nowrap text-[11px]">
+                        <button className="btn-primary !px-2.5 !py-1 text-[11px]" onClick={() => onUse(t)}>Use</button>
+                        <button className="text-muted hover:text-blue" onClick={() => setBuilder({ mode: 'edit', template: t })}>Edit</button>
+                        <button className="text-muted hover:text-blue" onClick={() => setBuilder({ mode: 'copy', template: t })}>Copy</button>
+                        <button className="text-muted hover:text-bad"
+                                onClick={() => { if (confirm(`Delete template "${t.title}"?`)) deleteTemplate(me.empId, t.id); }}>Delete</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <Pager page={safePage} total={list.length} pageSize={pageSize} onPage={setPage} />
+        </>
       ) : (
+        <>
         <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
-          {list.map((t) => (
+          {pageItems.map((t) => (
             <div key={t.id} className="card flex flex-col p-4">
               <div className="flex items-start justify-between gap-2">
                 <h3 className="font-display font-semibold leading-snug">{t.title}</h3>
@@ -99,6 +147,8 @@ export default function Templates({ onUse }) {
             </div>
           ))}
         </div>
+        <Pager page={safePage} total={list.length} pageSize={pageSize} onPage={setPage} />
+        </>
       )}
 
       <BuildModal open={!!builder} onClose={() => setBuilder(null)} me={me} groupNames={groupNames}

@@ -1,7 +1,8 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useDb } from '../lib/useDb';
 import TaskCard from '../components/TaskCard';
-import { Empty, Tabs, Chip, AsyncButton, DangerConfirm, Modal } from '../components/ui';
+import TaskTable from '../components/TaskTable';
+import { Empty, Tabs, Chip, AsyncButton, DangerConfirm, Modal, ViewToggle, Pager } from '../components/ui';
 import { httpsCallable } from 'firebase/functions';
 import { fns } from '../lib/firebase';
 import { statusOf, NEEDS_ATTENTION, fmtDate, livePendingApprovals, visibleGroups, GROUP_KINDS } from '../lib/progress';
@@ -146,6 +147,9 @@ export default function Dashboard({ role, me, employees, onOpen }) {
   const [group, setGroup] = useState('all');
   const [cat, setCat] = useState('all');   // stat-tile category, or 'all'
   const [groupsOpen, setGroupsOpen] = useState(false);
+  const [view, setView] = useState('cards');   // 'cards' | 'list'
+  const [page, setPage] = useState(0);
+  const pageSize = view === 'list' ? 20 : 12;
 
   const tasks = useMemo(() => Object.values(tasksRaw || {}), [tasksRaw]);
   const groups = useMemo(() => visibleGroups(groupsRaw, me, role), [groupsRaw, me, role]);
@@ -199,6 +203,12 @@ export default function Dashboard({ role, me, employees, onOpen }) {
       return a.deadline - b.deadline;
     });
 
+  // Back to page one whenever the filter set or the view changes.
+  useEffect(() => { setPage(0); }, [tab, dept, group, state, cat, view]);
+  const pageCount = Math.max(1, Math.ceil(shown.length / pageSize));
+  const safePage = Math.min(page, pageCount - 1);
+  const pageItems = shown.slice(safePage * pageSize, safePage * pageSize + pageSize);
+
   const tabs = role === 'admin'
     ? [['assigned', 'Assigned by me', buckets.assigned.length],
        ['byManagers', 'By managers', buckets.byManagers.length],
@@ -219,7 +229,8 @@ export default function Dashboard({ role, me, employees, onOpen }) {
 
       <div className="flex flex-wrap items-center gap-2">
         <Tabs value={tab} onChange={(v) => { setTab(v); setCat('all'); }} options={tabs} />
-        <span className="ml-auto flex flex-wrap gap-2">
+        <span className="ml-auto flex flex-wrap items-center gap-2">
+          <ViewToggle value={view} onChange={setView} />
           <select className="field !w-auto !py-2 text-xs" value={state}
                   onChange={(e) => { setState(e.target.value); setCat('all'); }}>
             <option value="open">Open</option>
@@ -275,24 +286,32 @@ export default function Dashboard({ role, me, employees, onOpen }) {
           : role === 'employee' ? 'No tasks assigned to you. Add your own from the button above.'
           : 'No tasks in this view. Create one to get started.'} />
       ) : (
-        <div className="grid gap-2.5 lg:grid-cols-2">
-          {shown.map((t) => (
-            <div key={t.id} className="relative">
-              {selMode && (
-                <label className="absolute left-2 top-2 z-10 flex h-7 w-7 cursor-pointer items-center justify-center rounded-md bg-white/95 shadow-card">
-                  <input type="checkbox" className="accent-blue" checked={selT.includes(t.id)}
-                         onChange={() => setSelT((s) => s.includes(t.id) ? s.filter((x) => x !== t.id) : [...s, t.id])} />
-                </label>
-              )}
-              <TaskCard task={t} updates={allUpdates?.[t.id]} employees={employees}
-                        groupName={groupsRaw?.[t.groupId]?.name}
-                        showOwner={role !== 'employee'}
-                        onOpen={() => selMode
-                          ? setSelT((s) => s.includes(t.id) ? s.filter((x) => x !== t.id) : [...s, t.id])
-                          : onOpen(t)} />
+        <>
+          {view === 'list' ? (
+            <TaskTable tasks={pageItems} updates={allUpdates} employees={employees}
+                       groupsRaw={groupsRaw} showOwner={role !== 'employee'} onOpen={onOpen} />
+          ) : (
+            <div className="grid gap-2.5 lg:grid-cols-2">
+              {pageItems.map((t) => (
+                <div key={t.id} className="relative">
+                  {selMode && (
+                    <label className="absolute left-2 top-2 z-10 flex h-7 w-7 cursor-pointer items-center justify-center rounded-md bg-white/95 shadow-card">
+                      <input type="checkbox" className="accent-blue" checked={selT.includes(t.id)}
+                             onChange={() => setSelT((s) => s.includes(t.id) ? s.filter((x) => x !== t.id) : [...s, t.id])} />
+                    </label>
+                  )}
+                  <TaskCard task={t} updates={allUpdates?.[t.id]} employees={employees}
+                            groupName={groupsRaw?.[t.groupId]?.name}
+                            showOwner={role !== 'employee'}
+                            onOpen={() => selMode
+                              ? setSelT((s) => s.includes(t.id) ? s.filter((x) => x !== t.id) : [...s, t.id])
+                              : onOpen(t)} />
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          )}
+          <Pager page={safePage} total={shown.length} pageSize={pageSize} onPage={setPage} />
+        </>
       )}
 
       <DangerConfirm

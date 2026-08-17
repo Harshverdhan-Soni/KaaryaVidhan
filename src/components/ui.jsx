@@ -137,6 +137,38 @@ export function AsyncButton({ onClick, busyLabel = 'Preparing…', children, ...
   );
 }
 
+/** Compact Cards / List switch for a collection view. */
+export function ViewToggle({ value, onChange }) {
+  return (
+    <div className="inline-flex gap-1 rounded-xl bg-blue/[.07] p-1">
+      {[['cards', 'Cards'], ['list', 'List']].map(([v, l]) => (
+        <button key={v} type="button" className={`tab ${value === v ? 'tab-on' : ''}`} onClick={() => onChange(v)}>{l}</button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Pagination control. Renders nothing when everything fits on one page.
+ * `page` is zero-based; `onPage` receives the new zero-based page.
+ */
+export function Pager({ page, total, pageSize, onPage }) {
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  if (pageCount <= 1) return null;
+  const from = page * pageSize + 1;
+  const to = Math.min(total, (page + 1) * pageSize);
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+      <p className="font-mono text-[11px] text-muted">{from}–{to} of {total}</p>
+      <div className="flex items-center gap-1.5">
+        <button className="btn-ghost !px-2.5 text-xs" disabled={page === 0} onClick={() => onPage(page - 1)}>‹ Prev</button>
+        <span className="font-mono text-[11px] text-muted">{page + 1} / {pageCount}</span>
+        <button className="btn-ghost !px-2.5 text-xs" disabled={page >= pageCount - 1} onClick={() => onPage(page + 1)}>Next ›</button>
+      </div>
+    </div>
+  );
+}
+
 export function Tabs({ value, onChange, options }) {
   return (
     <div className="inline-flex gap-1 rounded-xl bg-blue/[.07] p-1">
