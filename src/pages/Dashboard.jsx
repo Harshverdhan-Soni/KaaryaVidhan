@@ -4,7 +4,7 @@ import TaskCard from '../components/TaskCard';
 import { Empty, Tabs, Chip, AsyncButton, DangerConfirm } from '../components/ui';
 import { httpsCallable } from 'firebase/functions';
 import { fns } from '../lib/firebase';
-import { statusOf, NEEDS_ATTENTION, fmtDate, livePendingApprovals } from '../lib/progress';
+import { statusOf, NEEDS_ATTENTION, fmtDate, livePendingApprovals, visibleGroups, GROUP_KINDS } from '../lib/progress';
 import { exportRows } from '../lib/excel';
 
 /** Small stat strip. Numbers only — the Pace Bar does the storytelling. */
@@ -67,14 +67,17 @@ function AttentionRail({ tasks, onOpen }) {
 export default function Dashboard({ role, me, employees, onOpen }) {
   const tasksRaw   = useDb('tasks');
   const allUpdates = useDb('updates');
+  const groupsRaw  = useDb('groups');
   const [tab, setTab]   = useState(role === 'admin' ? 'assigned' : 'mine');
   const [selMode, setSelMode] = useState(false);
   const [selT, setSelT]       = useState([]);
   const [delOpen, setDelOpen] = useState(false);
   const [dept, setDept] = useState('all');
   const [state, setState] = useState('open');
+  const [group, setGroup] = useState('all');
 
   const tasks = useMemo(() => Object.values(tasksRaw || {}), [tasksRaw]);
+  const groups = useMemo(() => visibleGroups(groupsRaw, me, role), [groupsRaw, me, role]);
   const depts = useMemo(
     () => [...new Set(Object.values(employees || {}).map((e) => e.department).filter(Boolean))].sort(),
     [employees]);
@@ -107,6 +110,7 @@ export default function Dashboard({ role, me, employees, onOpen }) {
 
   const shown = (buckets[tab] || [])
     .filter((t) => dept === 'all' || t.department === dept)
+    .filter((t) => group === 'all' || (group === '__none__' ? !t.groupId : t.groupId === group))
     .filter((t) => {
       const k = statusOf(t).key;
       return state === 'all' ? true : state === 'open' ? k !== 'completed' : k === 'completed';
@@ -143,6 +147,20 @@ export default function Dashboard({ role, me, employees, onOpen }) {
             <option value="done">Completed</option>
             <option value="all">All</option>
           </select>
+          {groups.length > 0 && (
+            <select className="field !w-auto !py-2 text-xs" value={group} onChange={(e) => setGroup(e.target.value)}>
+              <option value="all">Every group</option>
+              <option value="__none__">No group</option>
+              {GROUP_KINDS.map(([k, label]) => {
+                const gs = groups.filter((g) => (g.kind || 'functional') === k);
+                return gs.length ? (
+                  <optgroup key={k} label={label}>
+                    {gs.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                  </optgroup>
+                ) : null;
+              })}
+            </select>
+          )}
           {role !== 'employee' && (
             <select className="field !w-auto !py-2 text-xs" value={dept} onChange={(e) => setDept(e.target.value)}>
               <option value="all">Every department</option>
@@ -152,6 +170,7 @@ export default function Dashboard({ role, me, employees, onOpen }) {
           {role === 'admin' && shown.length > 0 && (
             <AsyncButton className="btn-ghost text-xs" onClick={() => exportRows(shown, [
               ['Task', (t) => t.title], ['Department', (t) => t.department],
+              ['Group', (t) => groupsRaw?.[t.groupId]?.name || ''],
               ['Origin', (t) => (t.origin === 'self' ? 'Self assigned' : 'Assigned by admin')],
               ['Owner', (t) => employees?.[t.createdBy]?.name || t.createdBy],
               ['Members', (t) => Object.keys(t.members || {}).map((id) => employees?.[id]?.name || id).join(', ')],
@@ -184,6 +203,7 @@ export default function Dashboard({ role, me, employees, onOpen }) {
                 </label>
               )}
               <TaskCard task={t} updates={allUpdates?.[t.id]} employees={employees}
+                        groupName={groupsRaw?.[t.groupId]?.name}
                         showOwner={role !== 'employee'}
                         onOpen={() => selMode
                           ? setSelT((s) => s.includes(t.id) ? s.filter((x) => x !== t.id) : [...s, t.id])

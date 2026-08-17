@@ -3,7 +3,7 @@ import { Avatar, Chip } from './ui';
 import { colorForInTask } from '../lib/colors';
 import { statusOf, fmtDate, livePendingApprovals } from '../lib/progress';
 
-export default function TaskCard({ task, updates, employees, onOpen, showOwner = false }) {
+export default function TaskCard({ task, updates, employees, onOpen, showOwner = false, groupName }) {
   const st = statusOf(task);
   const members = Object.entries(task.members || {});
   const pending = members.filter(([, m]) => m.state === 'pending').length;
@@ -18,9 +18,10 @@ export default function TaskCard({ task, updates, employees, onOpen, showOwner =
                  focus-visible:border-blue-400 active:scale-[.995]">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="eyebrow">{task.origin === 'self' ? 'Self assigned' : 'Assigned'}</span>
             {task.department && <span className="eyebrow text-blue">· {task.department}</span>}
+            {groupName && <Chip color="#0B4E8C">{groupName}</Chip>}
           </div>
           <h3 className="mt-1 font-display font-semibold leading-snug truncate">{task.title}</h3>
         </div>

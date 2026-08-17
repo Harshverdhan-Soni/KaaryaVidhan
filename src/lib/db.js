@@ -126,6 +126,17 @@ export async function reassignTask(task, empIds, newDeadline, reason, me, resetP
   await audit(task.id, me.empId, 'reassigned', reason);
 }
 
+/**
+ * Record an already-completed task. All the sensitive writing (attributing
+ * progress to other people, synthesising the /updates ledger, stamping the
+ * past completion date) happens server-side in the createCompletedTask
+ * function — the client cannot do it under the security rules. Returns the id.
+ */
+export async function createCompletedTask(payload) {
+  const { data } = await httpsCallable(fns, 'createCompletedTask')(payload);
+  return data.taskId;
+}
+
 export async function createTask(t, me) {
   const id = push(ref(db, 'tasks')).key;
   await set(ref(db, `tasks/${id}`), { ...t, id, createdBy: me.empId, createdAt: Date.now() });
@@ -187,6 +198,9 @@ export async function updateTaskFields(taskId, fields, me) {
     department: (fields.department || '').trim()
   };
   if (fields.deadline) patch.deadline = fields.deadline;
+  // Only touch the group when the caller passed one (undefined = leave as-is);
+  // an empty string clears it.
+  if (fields.groupId !== undefined) patch.groupId = fields.groupId || null;
   await update(ref(db, `tasks/${taskId}`), patch);
   await audit(taskId, me.empId, 'edited', 'Task details updated');
 }
@@ -203,19 +217,55 @@ export async function rejectAssignment(taskId, empId, reason) {
   await httpsCallable(fns, 'rejectAssignment')({ taskId, empId, reason });
 }
 
+/* -------------------------------- groups ---------------------------------- */
+
+/**
+ * Create a task group. Scope follows the creator's role: an admin's group is
+ * 'org' (everyone can categorise and filter by it); a manager's group is 'team'
+ * (only they, their direct reports and admins see it — the client enforces this
+ * via visibleGroups, and the /groups security rule enforces the write side).
+ * Employees never reach here: the UI only offers creation to admins and managers.
+ * Returns the new group record (with its id) so the caller can select it.
+ */
+export async function createGroup({ name, kind }, me, role) {
+  const clean = String(name || '').trim();
+  if (!clean) throw new Error('A group name is required.');
+  const id = push(ref(db, 'groups')).key;
+  const group = {
+    id,
+    name: clean,
+    kind: kind === 'project' ? 'project' : 'functional',
+    createdBy: me.empId,
+    scope: role === 'admin' ? 'org' : 'team',
+    at: Date.now()
+  };
+  await set(ref(db, `groups/${id}`), group);
+  return group;
+}
+
 /* -------------------------- task templates (private) ---------------------- */
 
-/** Save a reusable template under the current user. Activities is a string[]. */
-export async function saveTemplate(uid, { title, description, activities }) {
-  const id = push(ref(db, `templates/${uid}`)).key;
-  await set(ref(db, `templates/${uid}/${id}`), {
-    id,
+/** Save a reusable template under the current user. Activities is a string[].
+ *  A template may also carry a group by name + kind (a recipe, not a groupId):
+ *  it is resolved to an actual group — or offered for creation — only when the
+ *  template is used, since templates travel across users via Excel.
+ *
+ *  Pass an `id` to edit an existing template in place (keeping its position via
+ *  the original createdAt); omit it to create a new one. "Copy" is just a new
+ *  save with a changed name. */
+export async function saveTemplate(uid, { title, description, activities, groupName, groupKind, createdAt }, id = null) {
+  const name = (groupName || '').trim();
+  const tid = id || push(ref(db, `templates/${uid}`)).key;
+  await set(ref(db, `templates/${uid}/${tid}`), {
+    id: tid,
     title: title.trim(),
     description: (description || '').trim(),
     activities: activities.map((a) => a.trim()).filter(Boolean),
-    createdAt: Date.now()
+    groupName: name,
+    groupKind: name ? (groupKind === 'project' ? 'project' : 'functional') : '',
+    createdAt: createdAt || Date.now()
   });
-  return id;
+  return tid;
 }
 
 export async function deleteTemplate(uid, tid) {

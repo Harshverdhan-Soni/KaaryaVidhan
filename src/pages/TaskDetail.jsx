@@ -6,7 +6,7 @@ import { Avatar, Chip, Modal, Field, DangerConfirm } from '../components/ui';
 import { httpsCallable } from 'firebase/functions';
 import { fns } from '../lib/firebase';
 import { colorFor, colorForInTask } from '../lib/colors';
-import { statusOf, contributions, fmtDate, fmtDateTime, toDateInput, initialMemberState, isCompleted, livePendingApprovals, activityState, canValidate, activitiesAwaiting } from '../lib/progress';
+import { statusOf, contributions, fmtDate, fmtDateTime, toDateInput, initialMemberState, isCompleted, livePendingApprovals, activityState, canValidate, activitiesAwaiting, visibleGroups, GROUP_KINDS } from '../lib/progress';
 import {
   setActivityProgress, toggleBlocked, addComment, respondToTask, extendDeadline, reassignTask, updateTaskFields, addMembers,
   approveActivity, rejectActivity,
@@ -245,7 +245,9 @@ export default function TaskDetail({ task: taskProp, employees, onClose, isAdmin
 
   const updates = useDb(`updates/${task.id}`);
   const audit   = useDb(`audit/${task.id}`);
-  const { me }  = useAuthed();
+  const groupsRaw = useDb('groups');
+  const { me, role } = useAuthed();
+  const taskGroup = groupsRaw?.[task.groupId];
   const [tab, setTab]           = useState('work');
   const [denyOpen, setDenyOpen] = useState(false);
   const [reason, setReason]     = useState('');
@@ -306,7 +308,10 @@ export default function TaskDetail({ task: taskProp, employees, onClose, isAdmin
       <div className="card p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <span className="eyebrow">{task.origin === 'self' ? 'Self assigned' : 'Assigned'} · {task.department || 'No department'}</span>
+            <span className="flex flex-wrap items-center gap-2">
+              <span className="eyebrow">{task.origin === 'self' ? 'Self assigned' : 'Assigned'} · {task.department || 'No department'}</span>
+              {taskGroup && <Chip color="#0B4E8C">{taskGroup.name}</Chip>}
+            </span>
             <h2 className="mt-1 font-display text-2xl font-bold leading-tight">{task.title}</h2>
             {task.description && <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted">{task.description}</p>}
           </div>
@@ -503,7 +508,8 @@ export default function TaskDetail({ task: taskProp, employees, onClose, isAdmin
       <ReassignModal open={reaOpen} onClose={() => setReaOpen(false)} task={task} me={me} employees={employees} />
       <AddMemberModal open={addOpen} onClose={() => setAddOpen(false)} task={task} me={me} employees={employees} myRole={myRole} isAdmin={isAdmin}
                       onAdded={(rows) => setPendingAdds((p) => ({ ...p, ...rows }))} />
-      <EditTaskModal open={editOpen} onClose={() => setEditOpen(false)} task={task} me={me} employees={employees} />
+      <EditTaskModal open={editOpen} onClose={() => setEditOpen(false)} task={task} me={me} employees={employees}
+                     role={role} groups={visibleGroups(groupsRaw, me, role)} />
 
       <DangerConfirm
         open={delOpen} onClose={() => setDelOpen(false)}
@@ -595,17 +601,23 @@ function ReassignModal({ open, onClose, task, me, employees }) {
   );
 }
 
-function EditTaskModal({ open, onClose, task, me, employees }) {
+function EditTaskModal({ open, onClose, task, me, employees, role, groups = [] }) {
   const [title, setTitle] = useState(task.title || '');
   const [desc, setDesc]   = useState(task.description || '');
   const [dept, setDept]   = useState(task.department || '');
   const [date, setDate]   = useState(toDateInput(task.deadline));
+  const [groupId, setGroupId] = useState(task.groupId || '');
   const [busy, setBusy]   = useState(false);
 
   useMemo(() => {
     if (open) { setTitle(task.title || ''); setDesc(task.description || '');
-                setDept(task.department || ''); setDate(toDateInput(task.deadline)); }
+                setDept(task.department || ''); setDate(toDateInput(task.deadline));
+                setGroupId(task.groupId || ''); }
   }, [open, task]);
+
+  // Keep an assigned-but-unseen group selectable so saving doesn't silently drop
+  // it — e.g. a task tagged with another manager's team group.
+  const knownHere = groups.some((g) => g.id === groupId);
 
   const depts = useMemo(
     () => [...new Set(Object.values(employees || {}).map((e) => e.department).filter(Boolean))].sort(),
@@ -615,7 +627,8 @@ function EditTaskModal({ open, onClose, task, me, employees }) {
     setBusy(true);
     await updateTaskFields(task.id, {
       title, description: desc, department: dept,
-      deadline: date ? new Date(date).setHours(23, 59, 59) : task.deadline
+      deadline: date ? new Date(date).setHours(23, 59, 59) : task.deadline,
+      groupId
     }, me);
     setBusy(false); onClose();
   };
@@ -643,6 +656,20 @@ function EditTaskModal({ open, onClose, task, me, employees }) {
                    onChange={(e) => setDate(e.target.value)} />
           </Field>
         </div>
+        <Field label="Group">
+          <select className="field" value={groupId} onChange={(e) => setGroupId(e.target.value)}>
+            <option value="">— No group —</option>
+            {groupId && !knownHere && <option value={groupId}>Current group (not visible to you)</option>}
+            {GROUP_KINDS.map(([k, label]) => {
+              const gs = groups.filter((g) => (g.kind || 'functional') === k);
+              return gs.length ? (
+                <optgroup key={k} label={label}>
+                  {gs.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                </optgroup>
+              ) : null;
+            })}
+          </select>
+        </Field>
         <button className="btn-primary w-full" disabled={!title.trim() || busy} onClick={save}>
           {busy ? 'Saving…' : 'Save changes'}
         </button>

@@ -6,6 +6,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { createHash, randomInt } from 'node:crypto';
 import { onValueCreated } from 'firebase-functions/v2/database';
 import { getMessaging } from 'firebase-admin/messaging';
+import { validateCompleted, buildLedger } from './completion.js';
 
 initializeApp();
 setGlobalOptions({ region: 'asia-south1', maxInstances: 10 });
@@ -107,6 +108,92 @@ export const importEmployees = onCall(async (req) => {
 
   await db().ref().update(updates);
   return { created, updated, skipped, pins };
+});
+
+/**
+ * Record an already-completed ("backdated") task — for work that was finished
+ * before the portal existed and needs a clean history entry. Done server-side
+ * because the client CANNOT, by design, attribute progress to other people:
+ * the /updates rule pins every entry to the writer, and activity progress is
+ * writable only by an accepted member in their own session. The Admin SDK
+ * synthesises the /updates ledger so the Pace Bar shows each contributor's
+ * share exactly as a normally-worked task would.
+ *
+ * Phase 1: only admins and managers may record one, and it completes outright
+ * (no approval). The employee self-record → manager-approval path is Phase 2.
+ */
+export const createCompletedTask = onCall(async (req) => {
+  if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+  const uid = req.auth.uid;
+  const role = req.auth.token.role || 'employee';
+  if (role !== 'admin' && role !== 'manager')
+    throw new HttpsError('permission-denied', 'Only managers and admins can record a completed task.');
+
+  const d = req.data || {};
+  const title = String(d.title || '').trim();
+  if (!title) throw new HttpsError('invalid-argument', 'A task name is required.');
+
+  const startDate = Number(d.startDate), deadline = Number(d.deadline), completedAt = Number(d.completedAt);
+  for (const [label, v] of [['start date', startDate], ['deadline', deadline], ['completion date', completedAt]])
+    if (!Number.isFinite(v)) throw new HttpsError('invalid-argument', `Enter a valid ${label}.`);
+  if (deadline < startDate)    throw new HttpsError('invalid-argument', 'The deadline is before the start date.');
+  if (completedAt < startDate) throw new HttpsError('invalid-argument', 'The completion date is before the start date.');
+
+  const activities = Array.isArray(d.activities) ? d.activities : [];
+  const emps = (await db().ref('employees').get()).val() || {};
+  const check = validateCompleted(activities, new Set(Object.keys(emps)));
+  if (!check.ok) throw new HttpsError('invalid-argument', check.error);
+
+  const taskId = db().ref('tasks').push().key;
+  const actIds = activities.map((_, i) => `a${i}`);
+  const ledger = buildLedger(activities, actIds, completedAt);
+
+  // Every activity is 100% and signed off (approvedBy = the recorder).
+  const actNode = {};
+  activities.forEach((a, i) => {
+    const last = [...(a.contribs || [])].reverse().find((c) => Number(c.pct) > 0);
+    actNode[actIds[i]] = {
+      title: String(a.title).trim(), order: i, progress: 100, blocked: false,
+      updatedBy: last?.empId || uid, updatedAt: completedAt,
+      approvedAt: completedAt, approvedBy: uid
+    };
+  });
+
+  // Members are the distinct contributors, all accepted at the completion time.
+  const members = {};
+  for (const a of activities) for (const c of (a.contribs || [])) {
+    const id = String(c.empId || '').trim();
+    if (id && !members[id]) members[id] = { state: 'accepted', at: completedAt };
+  }
+
+  const patch = {};
+  patch[`tasks/${taskId}`] = {
+    id: taskId, title,
+    description: String(d.description || '').trim(),
+    department: String(d.department || '').trim(),
+    groupId: d.groupId || null,
+    origin: 'assigned', startDate, deadline, completedAt,
+    createdBy: uid, createdAt: Date.now(), status: 'completed',
+    activities: actNode, members
+  };
+  for (const row of ledger)
+    patch[`updates/${taskId}/${db().ref('updates').push().key}`] = row;
+  patch[`audit/${taskId}/${db().ref('audit').push().key}`] = {
+    empId: uid, action: 'recorded completed task', detail: title, at: Date.now()
+  };
+  // Let each contributor know their past work was logged (skips the recorder).
+  for (const id of Object.keys(members)) {
+    if (id === uid) continue;
+    patch[`notifications/${id}/${db().ref('notifications').push().key}`] = {
+      type: 'completed', taskId,
+      title: `Recorded on a completed task: ${title}`,
+      body: `${emps[uid]?.name || uid} logged your contribution.`,
+      at: Date.now(), read: false
+    };
+  }
+
+  await db().ref().update(patch);
+  return { taskId };
 });
 
 /** An admin can reset anyone's PIN. Anyone can change their own. Nobody can read one. */

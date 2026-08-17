@@ -114,8 +114,14 @@ export async function downloadTemplate() {
 const TPL_FIELDS = {
   title:       ['task name', 'template name', 'title', 'task', 'name'],
   description: ['description', 'desc', 'details'],
-  activities:  ['activities', 'activity', 'steps', 'checklist', 'sub tasks', 'subtasks']
+  activities:  ['activities', 'activity', 'steps', 'checklist', 'sub tasks', 'subtasks'],
+  // Group columns: a type (Functional / Project) and the group's name.
+  groupName:   ['group name', 'group', 'project name', 'functional area name', 'functional area', 'area name', 'project/functional area'],
+  groupKind:   ['group type', 'group kind', 'type', 'category', 'functional or project']
 };
+
+/** Read a free-text type cell to our two kinds; anything project-ish → project. */
+const toKind = (v) => (/proj/.test(norm(v)) ? 'project' : 'functional');
 
 function mapTplHeaders(row) {
   const map = {};
@@ -159,7 +165,11 @@ export async function parseTemplateWorkbook(file) {
 
     if (!activities.length) return errors.push({ row: line, problem: `"${title}" has no activities. Add an Activities column, or Activity 1, Activity 2… columns.` });
 
-    rows.push({ title, description: String(r[map.description] ?? '').trim(), activities });
+    const groupName = String(r[map.groupName] ?? '').trim();
+    // Kind only matters when a name is present. If the type cell is blank but a
+    // name is given, default to a functional area.
+    const groupKind = groupName ? toKind(r[map.groupKind]) : '';
+    rows.push({ title, description: String(r[map.description] ?? '').trim(), activities, groupName, groupKind });
   });
 
   return { rows, errors };
@@ -169,11 +179,13 @@ export async function downloadTemplateWorkbook() {
   const XLSX = await sheetjs();
   const ws = XLSX.utils.json_to_sheet([
     { 'Task Name': 'Onboard a new hire', 'Description': 'Standard onboarding checklist',
+      'Group Type': 'Functional', 'Group Name': 'Administrative',
       'Activities': 'Create accounts | Assign workstation | Orientation session | First-week review' },
     { 'Task Name': 'Publish a tender notice', 'Description': '',
+      'Group Type': 'Project', 'Group Name': 'DVDMS',
       'Activities': 'Draft notice; Legal review; Upload to portal; Circulate internally' }
-  ]);
-  ws['!cols'] = [{ wch: 26 }, { wch: 32 }, { wch: 60 }];
+  ], { header: ['Task Name', 'Description', 'Group Type', 'Group Name', 'Activities'] });
+  ws['!cols'] = [{ wch: 26 }, { wch: 32 }, { wch: 14 }, { wch: 18 }, { wch: 60 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Templates');
   XLSX.writeFile(wb, 'kaarya-task-templates.xlsx');

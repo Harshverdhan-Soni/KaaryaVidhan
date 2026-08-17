@@ -178,6 +178,45 @@ export function unresolvedReports(employees) {
     .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 }
 
+/* --------------------------------- groups --------------------------------- */
+
+/** The two families a group can belong to, in display order: [value, label]. */
+export const GROUP_KINDS = [
+  ['functional', 'Functional areas'],
+  ['project', 'Projects']
+];
+
+/**
+ * Client-scoped group visibility — the same shape of scoping the dashboard
+ * already applies to task streams. The database lets any signed-in user read
+ * /groups; who actually SEES a group as a category or filter is decided here:
+ *
+ *   - an admin sees every group
+ *   - an 'org' group (created by an admin) is visible to everyone
+ *   - a 'team' group (created by a manager) is visible to its creator and to the
+ *     people who report directly to that creator — "the team under the manager"
+ *
+ * Note this is a display boundary, not a hard one: like task reads, /groups is
+ * readable at the database level. It mirrors how the rest of the app scopes.
+ */
+export function canSeeGroup(group, me, role) {
+  if (!group) return false;
+  if (role === 'admin') return true;
+  if (group.scope === 'org') return true;
+  if (group.createdBy && group.createdBy === me?.empId) return true;   // its creator
+  if (me?.managerId && me.managerId === group.createdBy) return true;  // a direct report
+  return false;
+}
+
+/** Groups this person may see, sorted by kind then name. */
+export function visibleGroups(groups, me, role) {
+  return Object.values(groups || {})
+    .filter((g) => canSeeGroup(g, me, role))
+    .sort((a, b) =>
+      (a.kind || 'functional').localeCompare(b.kind || 'functional') ||
+      (a.name || '').localeCompare(b.name || ''));
+}
+
 /** Member states that mean "not yet actionable by the employee". */
 export const PRE_EMPLOYEE = new Set(['awaiting_manager']);
 
