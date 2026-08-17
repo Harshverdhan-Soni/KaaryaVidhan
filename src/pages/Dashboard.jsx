@@ -61,24 +61,39 @@ function GroupsModal({ open, onClose, me, groupsRaw, tasks }) {
   );
 }
 
-/** Small stat strip. Numbers only — the Pace Bar does the storytelling. */
-function Stats({ tasks }) {
+/** The five stat categories, defined once so the tiles and the list filter agree. */
+const CAT_MATCH = {
+  open:       (st) => st.key !== 'completed',
+  ontrack:    (st) => st.key === 'ontrack',
+  slipping:   (st) => st.key === 'watch' || st.key === 'behind',
+  attention:  (st) => !!st.alert,
+  completed:  (st) => st.key === 'completed'
+};
+const STAT_CELLS = [
+  ['open', 'Open', '#0A2540'],
+  ['ontrack', 'On track', '#1F8A4C'],
+  ['slipping', 'Slipping', '#E8801A'],
+  ['attention', 'Need attention', '#D93025'],
+  ['completed', 'Completed', '#1F8A4C']
+];
+
+/** Stat strip. Each tile filters the list below to that category; click again to clear. */
+function Stats({ tasks, active, onPick }) {
   const s = tasks.map((t) => statusOf(t));
-  const cells = [
-    ['Open', s.filter((x) => x.key !== 'completed').length, '#0A2540'],
-    ['On track', s.filter((x) => x.key === 'ontrack').length, '#1F8A4C'],
-    ['Slipping', s.filter((x) => x.key === 'watch' || x.key === 'behind').length, '#E8801A'],
-    ['Need attention', s.filter((x) => x.alert).length, '#D93025'],
-    ['Completed', s.filter((x) => x.key === 'completed').length, '#1F8A4C']
-  ];
   return (
     <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-5">
-      {cells.map(([k, v, c]) => (
-        <div key={k} className="card px-3.5 py-3">
-          <p className="font-mono text-2xl font-semibold tabular-nums" style={{ color: c }}>{v}</p>
-          <p className="eyebrow mt-0.5">{k}</p>
-        </div>
-      ))}
+      {STAT_CELLS.map(([key, label, c]) => {
+        const v = s.filter((x) => CAT_MATCH[key](x)).length;
+        const on = active === key;
+        return (
+          <button key={key} onClick={() => onPick(key)} aria-pressed={on}
+            className="card px-3.5 py-3 text-left transition hover:border-blue-400"
+            style={on ? { boxShadow: `inset 0 0 0 2px ${c}` } : undefined}>
+            <p className="font-mono text-2xl font-semibold tabular-nums" style={{ color: c }}>{v}</p>
+            <p className="eyebrow mt-0.5">{label}{on && ' ·'}</p>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -129,6 +144,7 @@ export default function Dashboard({ role, me, employees, onOpen }) {
   const [dept, setDept] = useState('all');
   const [state, setState] = useState('open');
   const [group, setGroup] = useState('all');
+  const [cat, setCat] = useState('all');   // stat-tile category, or 'all'
   const [groupsOpen, setGroupsOpen] = useState(false);
 
   const tasks = useMemo(() => Object.values(tasksRaw || {}), [tasksRaw]);
@@ -163,12 +179,19 @@ export default function Dashboard({ role, me, employees, onOpen }) {
     return { mine: tasks.filter((t) => isMember(t, me.empId)) };
   }, [tasks, role, me.empId, reports, employees]);
 
-  const shown = (buckets[tab] || [])
+  // Everything in the current tab + department + group. The stat tiles count
+  // from this, so their numbers stay stable whatever tile/state is selected.
+  const base = (buckets[tab] || [])
     .filter((t) => dept === 'all' || t.department === dept)
-    .filter((t) => group === 'all' || (group === '__none__' ? !t.groupId : t.groupId === group))
+    .filter((t) => group === 'all' || (group === '__none__' ? !t.groupId : t.groupId === group));
+
+  // A clicked stat tile takes over the list; otherwise the Open/Completed/All
+  // dropdown applies.
+  const shown = base
     .filter((t) => {
-      const k = statusOf(t).key;
-      return state === 'all' ? true : state === 'open' ? k !== 'completed' : k === 'completed';
+      const st = statusOf(t);
+      if (cat !== 'all') return CAT_MATCH[cat](st);
+      return state === 'all' ? true : state === 'open' ? st.key !== 'completed' : st.key === 'completed';
     })
     .sort((a, b) => {
       const A = statusOf(a), B = statusOf(b);
@@ -188,16 +211,17 @@ export default function Dashboard({ role, me, employees, onOpen }) {
 
   return (
     <div className="space-y-4">
-      <Stats tasks={shown} />
+      <Stats tasks={base} active={cat} onPick={(k) => setCat((c) => (c === k ? 'all' : k))} />
 
       {(role === 'admin' || role === 'manager') && (
         <AttentionRail tasks={shown} onOpen={onOpen} />
       )}
 
       <div className="flex flex-wrap items-center gap-2">
-        <Tabs value={tab} onChange={setTab} options={tabs} />
+        <Tabs value={tab} onChange={(v) => { setTab(v); setCat('all'); }} options={tabs} />
         <span className="ml-auto flex flex-wrap gap-2">
-          <select className="field !w-auto !py-2 text-xs" value={state} onChange={(e) => setState(e.target.value)}>
+          <select className="field !w-auto !py-2 text-xs" value={state}
+                  onChange={(e) => { setState(e.target.value); setCat('all'); }}>
             <option value="open">Open</option>
             <option value="done">Completed</option>
             <option value="all">All</option>
