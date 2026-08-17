@@ -88,9 +88,9 @@ function Stats({ tasks, active, onPick }) {
         return (
           <button key={key} onClick={() => onPick(key)} aria-pressed={on}
             className="card px-3.5 py-3 text-left transition hover:border-blue-400"
-            style={on ? { boxShadow: `inset 0 0 0 2px ${c}` } : undefined}>
+            style={on ? { background: `linear-gradient(135deg, ${c}2e 0%, ${c}0d 55%, ${c}05 100%)`, borderColor: `${c}59` } : undefined}>
             <p className="font-mono text-2xl font-semibold tabular-nums" style={{ color: c }}>{v}</p>
-            <p className="eyebrow mt-0.5">{label}{on && ' ·'}</p>
+            <p className="eyebrow mt-0.5">{label}</p>
           </button>
         );
       })}
