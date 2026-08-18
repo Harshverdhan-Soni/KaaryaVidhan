@@ -1,6 +1,35 @@
 import { useEffect, useState } from 'react';
 import { colorFor, initialsOf } from '../lib/colors';
 
+/** Light / dark toggle. Persists the choice and flips the .dark class live. */
+export function ThemeToggle() {
+  const [dark, setDark] = useState(() =>
+    typeof document !== 'undefined' && document.documentElement.classList.contains('dark'));
+  const toggle = () => {
+    const next = !dark;
+    setDark(next);
+    document.documentElement.classList.toggle('dark', next);
+    try { localStorage.setItem('kv-theme', next ? 'dark' : 'light'); } catch { /* ignore */ }
+    const m = document.querySelector('meta[name="theme-color"]');
+    if (m) m.setAttribute('content', next ? '#0D1421' : '#0B4E8C');
+  };
+  return (
+    <button onClick={toggle} aria-label={dark ? 'Switch to light theme' : 'Switch to dark theme'}
+            title={dark ? 'Light theme' : 'Dark theme'}
+            className="grid h-9 w-9 place-items-center rounded-lg text-ink hover:bg-sky">
+      {dark ? (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+        </svg>
+      ) : (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+        </svg>
+      )}
+    </button>
+  );
+}
+
 export function Avatar({ emp, size = 28, ring = false, color }) {
   const c = color || colorFor(emp?.empId || '');
   return (
@@ -15,13 +44,10 @@ export function Avatar({ emp, size = 28, ring = false, color }) {
 }
 
 export function Chip({ color = '#5A7391', children, solid = false }) {
-  return (
-    <span className="chip" style={solid
-      ? { background: color, color: '#fff' }
-      : { background: `${color}18`, color, boxShadow: `inset 0 0 0 1px ${color}33` }}>
-      {children}
-    </span>
-  );
+  if (solid) return <span className="chip" style={{ background: color, color: '#fff' }}>{children}</span>;
+  // Soft chip: colours are mixed in CSS (see .chip-soft) so dark-ish hues like
+  // the group blue stay legible on the dark theme.
+  return <span className="chip chip-soft" style={{ '--chip-c': color }}>{children}</span>;
 }
 
 export function Empty({ title, action }) {
@@ -44,10 +70,10 @@ export function Modal({ open, onClose, title, children, wide = false }) {
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="absolute inset-0 bg-ink/45 backdrop-blur-[2px]" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px]" onClick={onClose} />
       <div className={`relative card w-full ${wide ? 'max-w-3xl' : 'max-w-lg'} max-h-[90vh] overflow-y-auto
                        rounded-b-none sm:rounded-b-xl`}>
-        <div className="sticky top-0 flex items-center justify-between gap-4 border-b border-line bg-white/95
+        <div className="sticky top-0 flex items-center justify-between gap-4 border-b border-line bg-surface/95
                         backdrop-blur px-5 py-3.5 rounded-t-xl">
           <h3 className="font-display font-semibold">{title}</h3>
           <button className="text-muted hover:text-ink text-xl leading-none" onClick={onClose} aria-label="Close">×</button>

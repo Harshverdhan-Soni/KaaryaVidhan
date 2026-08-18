@@ -71,7 +71,7 @@ const CAT_MATCH = {
   completed:  (st) => st.key === 'completed'
 };
 const STAT_CELLS = [
-  ['open', 'Open', '#0A2540'],
+  ['open', 'Open', '#64748B'],
   ['ontrack', 'On track', '#1F8A4C'],
   ['slipping', 'Slipping', '#E8801A'],
   ['attention', 'Need attention', '#D93025'],
@@ -294,7 +294,7 @@ export default function Dashboard({ role, me, employees, onOpen, layout = 'cards
               {pageItems.map((t) => (
                 <div key={t.id} className="relative">
                   {selMode && (
-                    <label className="absolute left-2 top-2 z-10 flex h-7 w-7 cursor-pointer items-center justify-center rounded-md bg-white/95 shadow-card">
+                    <label className="absolute left-2 top-2 z-10 flex h-7 w-7 cursor-pointer items-center justify-center rounded-md bg-surface/95 shadow-card">
                       <input type="checkbox" className="accent-blue" checked={selT.includes(t.id)}
                              onChange={() => setSelT((s) => s.includes(t.id) ? s.filter((x) => x !== t.id) : [...s, t.id])} />
                     </label>

@@ -10,7 +10,7 @@ import { statusOf, contributions, fmtDate, fmtDateTime, toDateInput, initialMemb
 import {
   setActivityProgress, toggleBlocked, addComment, respondToTask, extendDeadline, reassignTask, updateTaskFields, addMembers,
   approveActivity, rejectActivity,
-  approveAssignment, rejectAssignment
+  approveAssignment, rejectAssignment, removeMember
 } from '../lib/db';
 
 /* ------------------------------- one activity ------------------------------ */
@@ -72,7 +72,7 @@ function Activity({ task, actId, act, employees, canEdit, me, mayValidate }) {
           {aState === 'approved' && <Chip color="#1F8A4C">Approved</Chip>}
           {saving && <span className="font-mono text-[10px] font-normal text-muted animate-pulse">saving…</span>}
           <span className="font-mono text-sm font-semibold tabular-nums"
-                style={{ color: val >= 100 ? '#1F8A4C' : act.blocked ? '#D93025' : '#0A2540' }}>
+                style={{ color: val >= 100 ? '#1F8A4C' : act.blocked ? '#D93025' : 'rgb(var(--c-ink))' }}>
             {val}%
           </span>
         </span>
@@ -448,6 +448,12 @@ export default function TaskDetail({ task: taskProp, employees, onClose, isAdmin
                 <Chip color={m.state === 'accepted' ? '#1F8A4C' : m.state === 'denied' ? '#D93025' : (m.state === 'awaiting_manager' && !isCompleted(task)) ? '#0B4E8C' : '#5A7391'}>
                   {m.state === 'denied' ? 'Declined' : m.state === 'accepted' ? 'Accepted' : (m.state === 'awaiting_manager' && !isCompleted(task)) ? 'Manager approval' : isCompleted(task) ? 'Not needed' : 'Awaiting'}
                 </Chip>
+                {m.state === 'denied' && (isAdmin || task.createdBy === me.empId) && (
+                  <button className="btn-ghost !px-2.5 text-[11px] text-bad hover:bg-bad/10"
+                          onClick={() => { if (confirm(`Remove ${e?.name || id} from this task?`)) removeMember(task, id, me, e?.name); }}>
+                    Remove
+                  </button>
+                )}
               </div>
             );
           })}
@@ -766,7 +772,7 @@ function ManagerApprovalPanel({ task, me, employees }) {
           const e = employees?.[empId];
           const isRejecting = rejecting === empId;
           return (
-            <div key={empId} className="rounded-lg border border-line bg-white p-3">
+            <div key={empId} className="rounded-lg border border-line bg-surface p-3">
               <div className="flex items-center gap-2.5">
                 <Avatar emp={e} size={28} ring />
                 <div className="min-w-0 flex-1">

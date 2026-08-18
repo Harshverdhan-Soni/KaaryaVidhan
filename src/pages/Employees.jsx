@@ -84,7 +84,7 @@ export default function Employees({ employees }) {
               <div className="mt-2.5 flex flex-wrap gap-1.5">
                 {unresolved.map((e) => (
                   <button key={e.empId} onClick={() => setEditEmp(e)}
-                          className="group inline-flex items-center gap-1.5 rounded-lg border border-warn/40 bg-white px-2.5 py-1 text-[11px] hover:border-warn hover:bg-warn/10"
+                          className="group inline-flex items-center gap-1.5 rounded-lg border border-warn/40 bg-surface px-2.5 py-1 text-[11px] hover:border-warn hover:bg-warn/10"
                           title={`Reporting Authority “${e.reportingTo}” did not resolve — click to fix`}>
                     <span className="font-medium">{e.name}</span>
                     <span className="font-mono text-muted">{e.empId}</span>

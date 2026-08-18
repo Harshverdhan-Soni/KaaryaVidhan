@@ -84,6 +84,16 @@ export async function respondToTask(task, me, accepted, reason = '') {
   });
 }
 
+/**
+ * Drop a member from a task — used to remove someone who declined. Only the task
+ * creator or an admin can do this (enforced by the $taskId write rule). The task
+ * and everyone else on it are untouched.
+ */
+export async function removeMember(task, empId, me, name = '') {
+  await update(ref(db), { [`tasks/${task.id}/members/${empId}`]: null });
+  await audit(task.id, me.empId, 'removed member', name || empId);
+}
+
 export async function extendDeadline(task, newDeadline, reason, me) {
   await push(ref(db, `tasks/${task.id}/extensions`), {
     from: task.deadline, to: newDeadline, reason, by: me.empId, at: Date.now()

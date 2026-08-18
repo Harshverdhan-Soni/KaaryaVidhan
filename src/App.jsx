@@ -7,7 +7,7 @@ import Employees from './pages/Employees';
 import TaskDetail from './pages/TaskDetail';
 import TaskForm from './pages/TaskForm';
 import Templates from './pages/Templates';
-import { Avatar, Modal, Field } from './components/ui';
+import { Avatar, Modal, Field, ThemeToggle } from './components/ui';
 import { LogoMark } from './components/Logo';
 import NotificationBell from './components/NotificationBell';
 import { httpsCallable } from 'firebase/functions';
@@ -15,7 +15,7 @@ import { fns } from './lib/firebase';
 
 function Header({ me, role, onLogout, onProfile, onOpenTask }) {
   return (
-    <header className="sticky top-0 z-30 border-b border-line bg-white/85 backdrop-blur">
+    <header className="sticky top-0 z-30 border-b border-line bg-surface/85 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3">
         <LogoMark size={36} />
         <div className="min-w-0">
@@ -27,6 +27,7 @@ function Header({ me, role, onLogout, onProfile, onOpenTask }) {
           </p>
         </div>
         <div className="ml-auto flex items-center gap-1">
+          <ThemeToggle />
           <NotificationBell me={me} onOpenTask={onOpenTask} />
         </div>
         <button className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-sky" onClick={onProfile}>
