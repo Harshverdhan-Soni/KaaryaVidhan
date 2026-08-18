@@ -25,6 +25,9 @@ export default function TaskTable({ tasks, updates, employees, groupsRaw, showOw
             const g = groupsRaw?.[t.groupId];
             const acts = Object.keys(t.activities || {}).length;
             const awaiting = livePendingApprovals(t).length;
+            const memberIds = Object.keys(t.members || {});
+            const assignees = memberIds.slice(0, 4).map((id) => employees?.[id]?.name?.split(' ')[0] || id).join(', ')
+              + (memberIds.length > 4 ? ` +${memberIds.length - 4}` : '');
             return (
               <tr key={t.id} onClick={() => onOpen(t)} className="cursor-pointer align-top hover:bg-sky/40">
                 <td className="px-3 py-2.5">
@@ -36,6 +39,7 @@ export default function TaskTable({ tasks, updates, employees, groupsRaw, showOw
                     {acts} {acts === 1 ? 'activity' : 'activities'}
                     {awaiting > 0 && ` · ${awaiting} awaiting approval`}
                   </p>
+                  {assignees && <p className="mt-0.5 max-w-[16rem] truncate text-[11px] text-muted">{assignees}</p>}
                 </td>
                 <td className="w-[42%] min-w-[12rem] px-3 py-2.5">
                   <PaceBar task={t} updates={updates?.[t.id]} employees={employees} height={10} />

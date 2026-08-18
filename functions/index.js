@@ -171,7 +171,7 @@ export const createCompletedTask = onCall(async (req) => {
     id: taskId, title,
     description: String(d.description || '').trim(),
     department: String(d.department || '').trim(),
-    groupId: d.groupId || null,
+    groupId: d.groupId || null, templateId: d.templateId || null,
     origin: 'assigned', startDate, deadline, completedAt,
     createdBy: uid, createdAt: Date.now(), status: 'completed',
     activities: actNode, members

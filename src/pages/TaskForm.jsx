@@ -162,7 +162,7 @@ export default function TaskForm({ open, onClose, employees, me, role, prefill, 
       if (completed) {
         id = await createCompletedTask({
           title: title.trim(), description: desc.trim(), department: dept || me.department || '',
-          groupId: groupId || null,
+          groupId: groupId || null, templateId: prefill?.id || null,
           startDate: new Date(startD).setHours(0, 0, 0, 0),
           deadline: new Date(date).setHours(23, 59, 59),
           completedAt: new Date(compD).setHours(23, 59, 59),
@@ -185,7 +185,8 @@ export default function TaskForm({ open, onClose, employees, me, role, prefill, 
           origin,
           startDate: ongoing ? new Date(startD).setHours(0, 0, 0, 0) : Date.now(),
           deadline: new Date(date).setHours(23, 59, 59),
-          status: 'active', activities, members, groupId: groupId || null
+          status: 'active', activities, members, groupId: groupId || null,
+          templateId: prefill?.id || null
         }, me);
       }
       resetForm();

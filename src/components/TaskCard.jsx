@@ -41,6 +41,12 @@ export default function TaskCard({ task, updates, employees, onOpen, showOwner =
             </span>
           )}
         </div>
+        {members.length > 0 && (
+          <span className="min-w-0 truncate font-mono text-[11px] text-muted">
+            {members.slice(0, 3).map(([id]) => employees?.[id]?.name?.split(' ')[0] || id).join(', ')}
+            {members.length > 3 ? ` +${members.length - 3}` : ''}
+          </span>
+        )}
         <span className="font-mono text-[11px] text-muted">
           {acts.length} {acts.length === 1 ? 'activity' : 'activities'}
         </span>

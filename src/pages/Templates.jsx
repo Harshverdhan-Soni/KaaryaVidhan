@@ -30,6 +30,16 @@ export default function Templates({ onUse, layout = 'cards', onLayout }) {
   const usedGroupNames = useMemo(
     () => [...new Set(all.map((t) => t.groupName).filter(Boolean))].sort(), [all]);
 
+  // How many existing tasks were created from each template (stamped with
+  // templateId at creation). Only tasks created after this feature shipped carry
+  // the stamp, so older ones aren't counted.
+  const tasksRaw = useDb('tasks');
+  const useCounts = useMemo(() => {
+    const m = {};
+    for (const t of Object.values(tasksRaw || {})) if (t.templateId) m[t.templateId] = (m[t.templateId] || 0) + 1;
+    return m;
+  }, [tasksRaw]);
+
   const list = useMemo(() => all
     .filter((t) => fType === 'all' || t.groupKind === fType)
     .filter((t) => fName === 'all' || (fName === '__none__' ? !t.groupName : t.groupName === fName))
@@ -83,7 +93,7 @@ export default function Templates({ onUse, layout = 'cards', onLayout }) {
             <table className="w-full min-w-[560px] text-left text-xs">
               <thead className="border-b border-line bg-sky/60">
                 <tr>
-                  {['Template', 'Group', 'Activities', ''].map((c, i) => (
+                  {['Template', 'Group', 'Activities', 'Used', ''].map((c, i) => (
                     <th key={i} className="whitespace-nowrap px-3 py-2 font-mono uppercase tracking-wider text-[10px] text-muted">{c}</th>
                   ))}
                 </tr>
@@ -99,6 +109,7 @@ export default function Templates({ onUse, layout = 'cards', onLayout }) {
                       {t.groupName ? <Chip color="#0B4E8C">{t.groupName}{t.groupKind === 'project' ? ' · Project' : ''}</Chip> : <span className="text-muted">—</span>}
                     </td>
                     <td className="whitespace-nowrap px-3 py-2.5 font-mono text-[11px] text-muted">{t.activities.length}</td>
+                    <td className="whitespace-nowrap px-3 py-2.5 font-mono text-[11px] text-muted">{useCounts[t.id] || 0}</td>
                     <td className="px-3 py-2.5">
                       <div className="flex items-center justify-end gap-2.5 whitespace-nowrap text-[11px]">
                         <button className="btn-primary !px-2.5 !py-1 text-[11px]" onClick={() => onUse(t)}>Use</button>
@@ -133,7 +144,10 @@ export default function Templates({ onUse, layout = 'cards', onLayout }) {
               {t.groupName && (
                 <span className="mt-2"><Chip color="#0B4E8C">{t.groupName}{t.groupKind === 'project' ? ' · Project' : ''}</Chip></span>
               )}
-              <p className="eyebrow mt-3">{t.activities.length} {t.activities.length === 1 ? 'activity' : 'activities'}</p>
+              <p className="eyebrow mt-3">
+                {t.activities.length} {t.activities.length === 1 ? 'activity' : 'activities'}
+                <span className="ml-2 text-muted">· used {useCounts[t.id] || 0}×</span>
+              </p>
               <ul className="mt-1 space-y-0.5">
                 {t.activities.slice(0, 4).map((a, i) => (
                   <li key={i} className="flex items-center gap-1.5 text-[11px] text-muted">
