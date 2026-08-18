@@ -145,6 +145,7 @@ export default function Dashboard({ role, me, employees, onOpen, layout = 'cards
   const [dept, setDept] = useState('all');
   const [state, setState] = useState('open');
   const [group, setGroup] = useState('all');
+  const [q, setQ] = useState('');
   const [cat, setCat] = useState('all');   // stat-tile category, or 'all'
   const [groupsOpen, setGroupsOpen] = useState(false);
   const [page, setPage] = useState(0);
@@ -184,9 +185,17 @@ export default function Dashboard({ role, me, employees, onOpen, layout = 'cards
 
   // Everything in the current tab + department + group. The stat tiles count
   // from this, so their numbers stay stable whatever tile/state is selected.
+  const ql = q.trim().toLowerCase();
   const base = (buckets[tab] || [])
     .filter((t) => dept === 'all' || t.department === dept)
-    .filter((t) => group === 'all' || (group === '__none__' ? !t.groupId : t.groupId === group));
+    .filter((t) => group === 'all' || (group === '__none__' ? !t.groupId : t.groupId === group))
+    .filter((t) => {
+      if (!ql) return true;
+      const gname = groupsRaw?.[t.groupId]?.name || '';
+      const names = Object.keys(t.members || {}).map((id) => employees?.[id]?.name || '').join(' ');
+      const owner = employees?.[t.createdBy]?.name || '';
+      return `${t.title} ${t.description || ''} ${gname} ${names} ${owner} ${t.department || ''}`.toLowerCase().includes(ql);
+    });
 
   // A clicked stat tile takes over the list; otherwise the Open/Completed/All
   // dropdown applies.
@@ -203,7 +212,7 @@ export default function Dashboard({ role, me, employees, onOpen, layout = 'cards
     });
 
   // Back to page one whenever the filter set or the view changes.
-  useEffect(() => { setPage(0); }, [tab, dept, group, state, cat, layout]);
+  useEffect(() => { setPage(0); }, [tab, dept, group, state, cat, layout, q]);
   const pageCount = Math.max(1, Math.ceil(shown.length / pageSize));
   const safePage = Math.min(page, pageCount - 1);
   const pageItems = shown.slice(safePage * pageSize, safePage * pageSize + pageSize);
@@ -226,10 +235,35 @@ export default function Dashboard({ role, me, employees, onOpen, layout = 'cards
         <AttentionRail tasks={shown} onOpen={onOpen} />
       )}
 
-      <div className="flex flex-wrap items-center gap-2">
-        <Tabs value={tab} onChange={(v) => { setTab(v); setCat('all'); }} options={tabs} />
-        <span className="ml-auto flex flex-wrap items-center gap-2">
-          <ViewToggle value={layout} onChange={onLayout} />
+      <div className="space-y-2.5">
+        {/* Row 1 — streams on the left, admin actions on the right. */}
+        <div className="flex flex-wrap items-center gap-2">
+          <Tabs value={tab} onChange={(v) => { setTab(v); setCat('all'); }} options={tabs} />
+          {(role === 'admin' || role === 'manager') && (
+            <span className="ml-auto flex flex-wrap items-center gap-2">
+              <button className="btn-ghost text-xs" onClick={() => setGroupsOpen(true)}>Manage groups</button>
+              {role === 'admin' && shown.length > 0 && (
+                <AsyncButton className="btn-ghost text-xs" onClick={() => exportRows(shown, [
+                  ['Task', (t) => t.title], ['Department', (t) => t.department],
+                  ['Group', (t) => groupsRaw?.[t.groupId]?.name || ''],
+                  ['Origin', (t) => (t.origin === 'self' ? 'Self assigned' : 'Assigned by admin')],
+                  ['Owner', (t) => employees?.[t.createdBy]?.name || t.createdBy],
+                  ['Members', (t) => Object.keys(t.members || {}).map((id) => employees?.[id]?.name || id).join(', ')],
+                  ['Progress %', (t) => Math.round(statusOf(t).actual)],
+                  ['Expected %', (t) => Math.round(statusOf(t).expected)],
+                  ['Status', (t) => statusOf(t).label],
+                  ['Deadline', (t) => fmtDate(t.deadline)],
+                  ['Days left', (t) => statusOf(t).left]
+                ], `kaarya-tasks-${dept === 'all' ? 'all' : dept}.xlsx`)}>Export view</AsyncButton>
+              )}
+            </span>
+          )}
+        </div>
+
+        {/* Row 2 — search + filters on the left, view switch on the right. */}
+        <div className="flex flex-wrap items-center gap-2">
+          <input className="field w-full max-w-[16rem] !py-2 text-sm" placeholder="Search tasks, groups or people"
+                 value={q} onChange={(e) => setQ(e.target.value)} />
           <select className="field !w-auto !py-2 text-xs" value={state}
                   onChange={(e) => { setState(e.target.value); setCat('all'); }}>
             <option value="open">Open</option>
@@ -256,24 +290,8 @@ export default function Dashboard({ role, me, employees, onOpen, layout = 'cards
               {depts.map((d) => <option key={d} value={d}>{d}</option>)}
             </select>
           )}
-          {(role === 'admin' || role === 'manager') && (
-            <button className="btn-ghost text-xs" onClick={() => setGroupsOpen(true)}>Manage groups</button>
-          )}
-          {role === 'admin' && shown.length > 0 && (
-            <AsyncButton className="btn-ghost text-xs" onClick={() => exportRows(shown, [
-              ['Task', (t) => t.title], ['Department', (t) => t.department],
-              ['Group', (t) => groupsRaw?.[t.groupId]?.name || ''],
-              ['Origin', (t) => (t.origin === 'self' ? 'Self assigned' : 'Assigned by admin')],
-              ['Owner', (t) => employees?.[t.createdBy]?.name || t.createdBy],
-              ['Members', (t) => Object.keys(t.members || {}).map((id) => employees?.[id]?.name || id).join(', ')],
-              ['Progress %', (t) => Math.round(statusOf(t).actual)],
-              ['Expected %', (t) => Math.round(statusOf(t).expected)],
-              ['Status', (t) => statusOf(t).label],
-              ['Deadline', (t) => fmtDate(t.deadline)],
-              ['Days left', (t) => statusOf(t).left]
-            ], `kaarya-tasks-${dept === 'all' ? 'all' : dept}.xlsx`)}>Export view</AsyncButton>
-          )}
-        </span>
+          <span className="ml-auto"><ViewToggle value={layout} onChange={onLayout} /></span>
+        </div>
       </div>
 
       {shown.length === 0 ? (

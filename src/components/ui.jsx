@@ -146,6 +146,37 @@ export function DangerConfirm({ open, onClose, title, body, phrase, confirmLabel
 }
 
 /**
+ * A lightweight themed confirmation — the in-app replacement for window.confirm.
+ * For low-stakes yes/no actions (delete a template, drop a declined member).
+ * Destructive, PIN-gated actions still use DangerConfirm instead.
+ */
+export function ConfirmDialog({ open, onClose, title, body, confirmLabel = 'Confirm', danger = false, onConfirm }) {
+  const [busy, setBusy] = useState(false);
+  // The dialog stays mounted between opens, so clear busy each time it opens —
+  // otherwise a previous successful action leaves the button stuck on "Working…".
+  useEffect(() => { if (open) setBusy(false); }, [open]);
+  const run = async () => {
+    setBusy(true);
+    try { await onConfirm(); onClose(); }
+    catch { /* keep the dialog open on failure */ }
+    finally { setBusy(false); }
+  };
+  return (
+    <Modal open={open} onClose={onClose} title={title}>
+      <div className="space-y-4">
+        {body && <p className="text-sm leading-relaxed text-muted">{body}</p>}
+        <div className="flex gap-2">
+          <button className="btn-ghost flex-1" disabled={busy} onClick={onClose}>Cancel</button>
+          <button className={`flex-1 ${danger ? 'btn-danger' : 'btn-primary'}`} disabled={busy} onClick={run}>
+            {busy ? 'Working…' : confirmLabel}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/**
  * For actions that must fetch code before they can run — the spreadsheet
  * exports. Without this the button looks broken for the second SheetJS takes
  * to arrive on a slow connection.

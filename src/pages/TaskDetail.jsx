@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { useAuthed } from '../lib/auth';
 import { useDb } from '../lib/useDb';
 import PaceBar from '../components/PaceBar';
-import { Avatar, Chip, Modal, Field, DangerConfirm } from '../components/ui';
+import { Avatar, Chip, Modal, Field, DangerConfirm, ConfirmDialog } from '../components/ui';
 import { httpsCallable } from 'firebase/functions';
 import { fns } from '../lib/firebase';
 import { colorFor, colorForInTask } from '../lib/colors';
@@ -255,6 +255,7 @@ export default function TaskDetail({ task: taskProp, employees, onClose, isAdmin
   const [reaOpen, setReaOpen]   = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [delOpen, setDelOpen]   = useState(false);
+  const [removeM, setRemoveM]   = useState(null);   // { id, name } pending removal
   const [accepting, setAccepting] = useState(false);
   const [declining, setDeclining] = useState(false);
   const [myState, setMyState]   = useState('');   // local echo of my accept/decline
@@ -450,7 +451,7 @@ export default function TaskDetail({ task: taskProp, employees, onClose, isAdmin
                 </Chip>
                 {m.state === 'denied' && (isAdmin || task.createdBy === me.empId) && (
                   <button className="btn-ghost !px-2.5 text-[11px] text-bad hover:bg-bad/10"
-                          onClick={() => { if (confirm(`Remove ${e?.name || id} from this task?`)) removeMember(task, id, me, e?.name); }}>
+                          onClick={() => setRemoveM({ id, name: e?.name || id })}>
                     Remove
                   </button>
                 )}
@@ -516,6 +517,11 @@ export default function TaskDetail({ task: taskProp, employees, onClose, isAdmin
                       onAdded={(rows) => setPendingAdds((p) => ({ ...p, ...rows }))} />
       <EditTaskModal open={editOpen} onClose={() => setEditOpen(false)} task={task} me={me} employees={employees}
                      role={role} groups={visibleGroups(groupsRaw, me, role)} />
+      <ConfirmDialog open={!!removeM} onClose={() => setRemoveM(null)}
+                     title="Remove from task"
+                     body={removeM ? `Remove ${removeM.name} from “${task.title}”? They stay in the directory; only this assignment is removed.` : ''}
+                     confirmLabel="Remove" danger
+                     onConfirm={() => removeMember(task, removeM.id, me, removeM.name)} />
 
       <DangerConfirm
         open={delOpen} onClose={() => setDelOpen(false)}

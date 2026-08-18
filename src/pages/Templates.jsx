@@ -1,7 +1,7 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { useAuthed } from '../lib/auth';
 import { useDb } from '../lib/useDb';
-import { Modal, Field, Empty, AsyncButton, Chip, ViewToggle, Pager } from '../components/ui';
+import { Modal, Field, Empty, AsyncButton, Chip, ViewToggle, Pager, ConfirmDialog } from '../components/ui';
 import { saveTemplate, deleteTemplate, createGroup } from '../lib/db';
 import { parseTemplateWorkbook, downloadTemplateWorkbook } from '../lib/excel';
 import { visibleGroups } from '../lib/progress';
@@ -22,6 +22,7 @@ export default function Templates({ onUse, layout = 'cards', onLayout }) {
   const [fName, setFName] = useState('all');   // all | __none__ | <group name>
   const [builder, setBuilder] = useState(null); // { mode:'new'|'edit'|'copy', template } | null
   const [imp, setImp]     = useState(false);
+  const [delTpl, setDelTpl] = useState(null);     // template pending deletion
   const [page, setPage]   = useState(0);
   const pageSize = layout === 'list' ? 20 : 12;
 
@@ -116,7 +117,7 @@ export default function Templates({ onUse, layout = 'cards', onLayout }) {
                         <button className="text-muted hover:text-blue" onClick={() => setBuilder({ mode: 'edit', template: t })}>Edit</button>
                         <button className="text-muted hover:text-blue" onClick={() => setBuilder({ mode: 'copy', template: t })}>Copy</button>
                         <button className="text-muted hover:text-bad"
-                                onClick={() => { if (confirm(`Delete template "${t.title}"?`)) deleteTemplate(me.empId, t.id); }}>Delete</button>
+                                onClick={() => setDelTpl(t)}>Delete</button>
                       </div>
                     </td>
                   </tr>
@@ -137,7 +138,7 @@ export default function Templates({ onUse, layout = 'cards', onLayout }) {
                   <button className="text-muted hover:text-blue" onClick={() => setBuilder({ mode: 'edit', template: t })}>Edit</button>
                   <button className="text-muted hover:text-blue" onClick={() => setBuilder({ mode: 'copy', template: t })}>Copy</button>
                   <button className="text-muted hover:text-bad"
-                          onClick={() => { if (confirm(`Delete template "${t.title}"?`)) deleteTemplate(me.empId, t.id); }}>Delete</button>
+                          onClick={() => setDelTpl(t)}>Delete</button>
                 </span>
               </div>
               {t.description && <p className="mt-1 text-xs leading-relaxed text-muted line-clamp-2">{t.description}</p>}
@@ -167,6 +168,11 @@ export default function Templates({ onUse, layout = 'cards', onLayout }) {
       <BuildModal open={!!builder} onClose={() => setBuilder(null)} me={me} groupNames={groupNames}
                   mode={builder?.mode || 'new'} template={builder?.template || null} />
       <ImportModal open={imp} onClose={() => setImp(false)} me={me} role={role} groups={visGroups} />
+      <ConfirmDialog open={!!delTpl} onClose={() => setDelTpl(null)}
+                     title="Delete template"
+                     body={delTpl ? `Delete the template “${delTpl.title}”? This can't be undone. Tasks already created from it are not affected.` : ''}
+                     confirmLabel="Delete template" danger
+                     onConfirm={() => deleteTemplate(me.empId, delTpl.id)} />
     </div>
   );
 }
