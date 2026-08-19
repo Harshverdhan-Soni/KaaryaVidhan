@@ -106,11 +106,13 @@ export default function App() {
               onHome={() => { setOpen(null); setView('tasks'); }} />
 
       <main className="mx-auto max-w-6xl px-4 py-5">
-        {open && live ? (
+        {open && live && (
           <TaskDetail task={{ ...live, id: open }} employees={employees}
                       isAdmin={isAdmin} onClose={() => setOpen(null)} />
-        ) : (
-          <>
+        )}
+        {/* The list stays mounted (just hidden) while a task is open, so its
+            filters, search and page survive the round trip back. */}
+        <div className={open && live ? 'hidden' : ''}>
             <div className="mb-4 flex items-center gap-2">
               {(isAdmin || role === 'manager') && (
                 <div className="inline-flex gap-1 rounded-xl bg-blue/[.07] p-1">
@@ -134,8 +136,7 @@ export default function App() {
               : view === 'templates' && (isAdmin || role === 'manager')
                 ? <Templates onUse={(t) => { setPrefill(t); setForm(true); }} layout={layout} onLayout={setLayout} />
                 : <Dashboard role={role} me={me} employees={employees} onOpen={(t) => setOpen(t.id)} layout={layout} onLayout={setLayout} />}
-          </>
-        )}
+        </div>
       </main>
 
       <TaskForm open={form} onClose={() => { setForm(false); setPrefill(null); }} employees={employees} me={me}
