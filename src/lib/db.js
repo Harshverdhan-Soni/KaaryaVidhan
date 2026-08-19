@@ -63,6 +63,40 @@ export async function toggleBlocked(task, actId, blocked, me) {
   await audit(task.id, me.empId, blocked ? 'blocked' : 'unblocked', task.activities[actId]?.title || '');
 }
 
+/**
+ * Append a new activity to a running task. The task creator or an admin can
+ * always do this; an accepted member can too, but only while the task's
+ * `allowMemberActivities` flag is on (enforced by the /activities rule). Adding
+ * one to a completed task re-opens it, since the mean progress drops below 100%.
+ */
+export async function addActivity(task, title, me) {
+  const clean = String(title || '').trim();
+  if (!clean) return;
+  const order = Object.values(task.activities || {}).reduce((m, a) => Math.max(m, a.order ?? 0), -1) + 1;
+  const id = push(ref(db, `tasks/${task.id}/activities`)).key;
+  const patch = {
+    [`tasks/${task.id}/activities/${id}`]: { title: clean, order, progress: 0, blocked: false, addedBy: me.empId },
+    [`tasks/${task.id}/lastActivityAt`]: Date.now()
+  };
+  if (task.completedAt) { patch[`tasks/${task.id}/completedAt`] = null; patch[`tasks/${task.id}/status`] = 'active'; }
+  await update(ref(db), patch);
+  await audit(task.id, me.empId, 'added activity', clean);
+  return id;
+}
+
+/** Toggle whether accepted members may add activities to this task. Creator/admin only. */
+export async function setMemberActivities(task, allow, me) {
+  await update(ref(db, `tasks/${task.id}`), { allowMemberActivities: !!allow });
+  await audit(task.id, me.empId, allow ? 'allowed member activities' : 'blocked member activities');
+}
+
+/** Bulk-set the flag across a set of tasks (the caller's own). */
+export async function setMemberActivitiesAll(taskIds, allow, me) {
+  const patch = {};
+  for (const id of taskIds) patch[`tasks/${id}/allowMemberActivities`] = !!allow;
+  if (Object.keys(patch).length) await update(ref(db), patch);
+}
+
 export async function addComment(taskId, actId, me, text) {
   if (!text.trim()) return;
   await push(ref(db, `comments/${taskId}/${actId}`), {

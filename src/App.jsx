@@ -13,19 +13,22 @@ import NotificationBell from './components/NotificationBell';
 import { httpsCallable } from 'firebase/functions';
 import { fns } from './lib/firebase';
 
-function Header({ me, role, onLogout, onProfile, onOpenTask }) {
+function Header({ me, role, onLogout, onProfile, onOpenTask, onHome }) {
   return (
     <header className="sticky top-0 z-30 border-b border-line bg-surface/85 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3">
-        <LogoMark size={36} />
-        <div className="min-w-0">
-          <p className="font-display text-[15px] font-bold leading-tight tracking-tight sm:text-base">
-            <span className="text-ink">Kaarya</span><span className="text-blue">Vidhan</span>
-          </p>
-          <p className="hidden font-mono text-[10px] uppercase tracking-[.12em] text-muted sm:block">
-            Employees Task Tracker
-          </p>
-        </div>
+        <button onClick={onHome} title="Back to tasks" aria-label="Back to tasks"
+                className="flex items-center gap-3 rounded-lg -m-1 p-1 hover:bg-sky">
+          <LogoMark size={36} />
+          <div className="min-w-0 text-left">
+            <p className="font-display text-[15px] font-bold leading-tight tracking-tight sm:text-base">
+              <span className="text-ink">Kaarya</span><span className="text-blue">Vidhan</span>
+            </p>
+            <p className="hidden font-mono text-[10px] uppercase tracking-[.12em] text-muted sm:block">
+              Employees Task Tracker
+            </p>
+          </div>
+        </button>
         <div className="ml-auto flex items-center gap-1">
           <ThemeToggle />
           <NotificationBell me={me} onOpenTask={onOpenTask} />
@@ -98,7 +101,9 @@ export default function App() {
 
   return (
     <div className="min-h-dvh">
-      <Header me={me} role={role} onLogout={logout} onProfile={() => setProf(true)} onOpenTask={(id) => { setView("tasks"); setOpen(id); }} />
+      <Header me={me} role={role} onLogout={logout} onProfile={() => setProf(true)}
+              onOpenTask={(id) => { setView("tasks"); setOpen(id); }}
+              onHome={() => { setOpen(null); setView('tasks'); }} />
 
       <main className="mx-auto max-w-6xl px-4 py-5">
         {open && live ? (

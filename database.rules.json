@@ -50,6 +50,7 @@
         },
         "activities": {
           "$actId": {
+            ".write": "!data.exists() && root.child('tasks/'+$taskId+'/allowMemberActivities').val() === true && root.child('tasks/'+$taskId+'/members/'+auth.uid+'/state').val() === 'accepted'",
             "progress": {
               ".write": "root.child('tasks/'+$taskId+'/members/'+auth.uid+'/state').val() === 'accepted'",
               ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100"

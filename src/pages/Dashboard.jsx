@@ -6,7 +6,7 @@ import { Empty, Tabs, Chip, AsyncButton, DangerConfirm, Modal, ViewToggle, Pager
 import { httpsCallable } from 'firebase/functions';
 import { fns } from '../lib/firebase';
 import { statusOf, NEEDS_ATTENTION, fmtDate, livePendingApprovals, visibleGroups, GROUP_KINDS } from '../lib/progress';
-import { deleteGroup } from '../lib/db';
+import { deleteGroup, setMemberActivitiesAll } from '../lib/db';
 import { exportRows } from '../lib/excel';
 
 /** Manage the groups you created: delete one only when no task uses it. */
@@ -57,6 +57,35 @@ function GroupsModal({ open, onClose, me, groupsRaw, tasks }) {
             })}
           </div>
         )}
+      </div>
+    </Modal>
+  );
+}
+
+/** Bulk switch for "members can add activities" across all tasks you created. */
+function MemberActivitiesModal({ open, onClose, me, tasks }) {
+  const mine = useMemo(() => tasks.filter((t) => t.createdBy === me.empId), [tasks, me.empId]);
+  const [busy, setBusy] = useState('');
+  const apply = async (allow) => {
+    setBusy(allow ? 'on' : 'off');
+    try { await setMemberActivitiesAll(mine.map((t) => t.id), allow, me); onClose(); }
+    finally { setBusy(''); }
+  };
+  return (
+    <Modal open={open} onClose={onClose} title="Member-added activities">
+      <div className="space-y-4">
+        <p className="text-sm leading-relaxed text-muted">
+          Turn “members can add activities” on or off across all {mine.length} {mine.length === 1 ? 'task' : 'tasks'} you
+          created. Individual tasks can still be changed afterwards from the task itself.
+        </p>
+        <div className="flex gap-2">
+          <button className="btn-ghost flex-1" disabled={!!busy || !mine.length} onClick={() => apply(false)}>
+            {busy === 'off' ? 'Working…' : 'Turn off on all'}
+          </button>
+          <button className="btn-primary flex-1" disabled={!!busy || !mine.length} onClick={() => apply(true)}>
+            {busy === 'on' ? 'Working…' : 'Allow on all'}
+          </button>
+        </div>
       </div>
     </Modal>
   );
@@ -148,6 +177,7 @@ export default function Dashboard({ role, me, employees, onOpen, layout = 'cards
   const [q, setQ] = useState('');
   const [cat, setCat] = useState('all');   // stat-tile category, or 'all'
   const [groupsOpen, setGroupsOpen] = useState(false);
+  const [memberActOpen, setMemberActOpen] = useState(false);
   const [page, setPage] = useState(0);
   const pageSize = layout === 'list' ? 20 : 12;
 
@@ -241,6 +271,7 @@ export default function Dashboard({ role, me, employees, onOpen, layout = 'cards
           <Tabs value={tab} onChange={(v) => { setTab(v); setCat('all'); }} options={tabs} />
           {(role === 'admin' || role === 'manager') && (
             <span className="ml-auto flex flex-wrap items-center gap-2">
+              <button className="btn-ghost text-xs" onClick={() => setMemberActOpen(true)}>Member activities</button>
               <button className="btn-ghost text-xs" onClick={() => setGroupsOpen(true)}>Manage groups</button>
               {role === 'admin' && shown.length > 0 && (
                 <AsyncButton className="btn-ghost text-xs" onClick={() => exportRows(shown, [
@@ -339,6 +370,7 @@ export default function Dashboard({ role, me, employees, onOpen, layout = 'cards
         onConfirm={async (pin) => { await httpsCallable(fns, 'deleteTasks')({ taskIds: selT, pin }); setSelT([]); setSelMode(false); }} />
 
       <GroupsModal open={groupsOpen} onClose={() => setGroupsOpen(false)} me={me} groupsRaw={groupsRaw} tasks={tasks} />
+      <MemberActivitiesModal open={memberActOpen} onClose={() => setMemberActOpen(false)} me={me} tasks={tasks} />
     </div>
   );
 }

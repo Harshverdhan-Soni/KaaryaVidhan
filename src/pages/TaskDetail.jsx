@@ -10,8 +10,49 @@ import { statusOf, contributions, fmtDate, fmtDateTime, toDateInput, initialMemb
 import {
   setActivityProgress, toggleBlocked, addComment, respondToTask, extendDeadline, reassignTask, updateTaskFields, addMembers,
   approveActivity, rejectActivity,
-  approveAssignment, rejectAssignment, removeMember
+  approveAssignment, rejectAssignment, removeMember,
+  addActivity, setMemberActivities
 } from '../lib/db';
+
+/* Creator/admin switch: let accepted members append their own activities. */
+function MemberAddToggle({ task, me, on }) {
+  const [busy, setBusy] = useState(false);
+  const flip = async () => { setBusy(true); try { await setMemberActivities(task, !on, me); } finally { setBusy(false); } };
+  return (
+    <div className="card flex items-center justify-between gap-3 p-3.5">
+      <div className="min-w-0">
+        <p className="text-sm font-medium">Members can add activities</p>
+        <p className="mt-0.5 text-[11px] text-muted">When on, anyone who accepted this task can append new activities.</p>
+      </div>
+      <button onClick={flip} disabled={busy} role="switch" aria-checked={on}
+              className={`relative h-6 w-11 shrink-0 rounded-full transition ${on ? 'bg-blue' : 'bg-line'} disabled:opacity-50`}>
+        <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-surface shadow transition-all ${on ? 'left-[1.375rem]' : 'left-0.5'}`} />
+      </button>
+    </div>
+  );
+}
+
+/* Append-activity row, shown to whoever is allowed to add. */
+function AddActivityRow({ task, me }) {
+  const [title, setTitle] = useState('');
+  const [busy, setBusy] = useState(false);
+  const add = async () => {
+    if (!title.trim()) return;
+    setBusy(true);
+    try { await addActivity(task, title, me); setTitle(''); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="card flex gap-2 p-2.5">
+      <input className="field" placeholder="Add an activity to this task" value={title}
+             onChange={(e) => setTitle(e.target.value)}
+             onKeyDown={(e) => { if (e.key === 'Enter') add(); }} />
+      <button className="btn-primary shrink-0 text-xs" disabled={!title.trim() || busy} onClick={add}>
+        {busy ? 'Adding…' : 'Add'}
+      </button>
+    </div>
+  );
+}
 
 /* ------------------------------- one activity ------------------------------ */
 
@@ -297,6 +338,11 @@ export default function TaskDetail({ task: taskProp, employees, onClose, isAdmin
   // special rights, and an admin only monitors — unless the admin is themselves
   // an accepted member of this task.
   const canEdit = mine?.state === 'accepted';
+  // Who may manage this task's settings (per the toggle) and who may add
+  // activities: the creator or an admin always; accepted members only while the
+  // task's flag is on.
+  const canManageTask = isAdmin || task.createdBy === me.empId;
+  const canAddActivity = canManageTask || (task.allowMemberActivities && mine?.state === 'accepted');
   // The task owner or an admin validates activities marked complete.
   const mayValidate = canValidate(task, me, isAdmin);
   const trail   = Object.entries(audit || {}).sort((a, b) => b[1].at - a[1].at);
@@ -415,10 +461,12 @@ export default function TaskDetail({ task: taskProp, employees, onClose, isAdmin
 
       {tab === 'work' && (
         <div className="space-y-2.5">
+          {canManageTask && <MemberAddToggle task={task} me={me} on={!!task.allowMemberActivities} />}
           {acts.length === 0 && <div className="card p-6 text-center text-sm text-muted">No activities on this task yet.</div>}
           {acts.map(([id, a]) => (
             <Activity key={id} task={task} actId={id} act={a} employees={employees} me={me} canEdit={canEdit} mayValidate={mayValidate} />
           ))}
+          {canAddActivity && <AddActivityRow task={task} me={me} />}
           {!canEdit && mine?.state !== 'pending' && (
             <p className="text-center text-[11px] text-muted">
               {isAdmin ? 'You are monitoring this task. Progress can only be recorded by the people it is assigned to.'
